@@ -25,11 +25,18 @@ interface WorldViewState {
   };
   visualMode: 'normal' | 'night-vision' | 'thermal';
   crtEnabled: boolean;
+  postFx: {
+    pixelation: number;
+    chromaticAberration: number;
+    noise: number;
+    bloom: number;
+  };
   currentTime: Date;
   selectedEntity: any | null;
   toggleLayer: (layer: keyof WorldViewState['layers']) => void;
   setVisualMode: (mode: WorldViewState['visualMode']) => void;
   toggleCrt: () => void;
+  setPostFx: (key: keyof WorldViewState['postFx'], value: number) => void;
   setCurrentTime: (time: Date) => void;
   setSelectedEntity: (entity: any) => void;
 }
@@ -37,8 +44,8 @@ interface WorldViewState {
 export const useWorldViewStore = create<WorldViewState>((set) => ({
   layers: {
     aircraft: true,
-    militaryFlights: false,
-    satellites: false,
+    militaryFlights: true,
+    satellites: true,
     earthquakes: true,
     marineTraffic: false,
     submarineCables: false,
@@ -51,14 +58,20 @@ export const useWorldViewStore = create<WorldViewState>((set) => ({
     magnetosphere: false,
     streetTraffic: false,
     bikeshare: false,
-    pois: false,
+    pois: true,
     internetDevices: false,
     wigleWifi: false,
     snapchatMaps: false,
     pokemonGo: false,
   },
   visualMode: 'normal',
-  crtEnabled: false,
+  crtEnabled: true,
+  postFx: {
+    pixelation: 0.18,
+    chromaticAberration: 0.003,
+    noise: 0.08,
+    bloom: 1,
+  },
   currentTime: new Date(),
   selectedEntity: null,
   toggleLayer: (layer) =>
@@ -67,6 +80,8 @@ export const useWorldViewStore = create<WorldViewState>((set) => ({
     })),
   setVisualMode: (mode) => set({ visualMode: mode }),
   toggleCrt: () => set((state) => ({ crtEnabled: !state.crtEnabled })),
+  setPostFx: (key, value) =>
+    set((state) => ({ postFx: { ...state.postFx, [key]: value } })),
   setCurrentTime: (time) => set({ currentTime: time }),
   setSelectedEntity: (entity) => set({ selectedEntity: entity }),
 }));

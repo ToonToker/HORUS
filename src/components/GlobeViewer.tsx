@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Viewer, Entity, PointGraphics, LabelGraphics, PolylineGraphics, Cesium3DTileset, ImageryLayer, useCesium } from 'resium';
-import { Cartesian3, Color, createOsmBuildingsAsync, UrlTemplateImageryProvider, PointPrimitiveCollection, LabelCollection, ScreenSpaceEventHandler, ScreenSpaceEventType } from 'cesium';
+import { Cartesian3, Color, createOsmBuildingsAsync, UrlTemplateImageryProvider, PointPrimitiveCollection, LabelCollection, ScreenSpaceEventHandler, ScreenSpaceEventType, PostProcessStage, PostProcessStageComposite } from 'cesium';
 import { io } from 'socket.io-client';
 import { useWorldViewStore } from '../store';
 
@@ -107,7 +107,7 @@ const PrimitiveLayer = ({ data, show, idPrefix, color, pixelSize, label }: Primi
 };
 
 const GlobeViewer = () => {
-  const { layers, visualMode, crtEnabled, selectedEntity, setSelectedEntity } = useWorldViewStore();
+  const { layers, visualMode, crtEnabled, postFx, selectedEntity, setSelectedEntity } = useWorldViewStore();
   const [aircraftData, setAircraftData] = useState<any[]>([]);
   const [militaryFlightsData, setMilitaryFlightsData] = useState<any[]>([]);
   const [satelliteData, setSatelliteData] = useState<any[]>([]);
@@ -134,6 +134,7 @@ const GlobeViewer = () => {
   const [weatherProvider, setWeatherProvider] = useState<any>(null);
   const viewerRef = useRef<any>(null);
   const historyRef = useRef<Record<string, number[]>>({});
+  const postFxRef = useRef<PostProcessStageComposite | null>(null);
 
   useEffect(() => {
     fetch('https://api.rainviewer.com/public/weather-maps.json')
@@ -216,6 +217,9 @@ const GlobeViewer = () => {
   useEffect(() => {
     if (viewerRef.current?.cesiumElement) {
       const viewer = viewerRef.current.cesiumElement;
+      (window as any).__WORLDVIEW_VIEWER__ = viewer;
+      (window as any).Cesium = { Cartesian3 };
+
       createOsmBuildingsAsync().then((tileset) => {
         viewer.scene.primitives.add(tileset);
       });
@@ -241,22 +245,83 @@ const GlobeViewer = () => {
     }
   }, []);
 
+  useEffect(() => {
+    if (!viewerRef.current?.cesiumElement) return;
+    const viewer = viewerRef.current.cesiumElement;
+
+    const tacticalStage = new PostProcessStage({
+      name: 'worldview-tactical',
+      fragmentShader: `uniform sampler2D colorTexture;\n      in vec2 v_textureCoordinates;\n      uniform float pixelation;\n      uniform float chromaticAberration;\n      uniform float noiseAmount;\n      void main() {\n        vec2 uv = v_textureCoordinates;\n        vec2 p = vec2(max(pixelation, 0.001));\n        uv = floor(uv / p) * p;\n        vec2 shift = vec2(chromaticAberration, 0.0);\n        float r = texture(colorTexture, uv + shift).r;\n        float g = texture(colorTexture, uv).g;\n        float b = texture(colorTexture, uv - shift).b;\n        float scan = sin(uv.y * 1600.0) * 0.05;\n        float grain = fract(sin(dot(uv * czm_frameNumber, vec2(12.9898, 78.233))) * 43758.5453);\n        vec3 col = vec3(r, g, b) + scan + ((grain - 0.5) * noiseAmount);\n        out_FragColor = vec4(col, 1.0);\n      }`,
+      uniforms: {
+        pixelation: postFx.pixelation,
+        chromaticAberration: postFx.chromaticAberration,
+        noiseAmount: postFx.noise,
+      },
+    });
+
+    const nvgStage = new PostProcessStage({
+      name: 'worldview-nvg',
+      fragmentShader: `uniform sampler2D colorTexture;\n      in vec2 v_textureCoordinates;\n      uniform float noiseAmount;\n      void main(){\n        vec4 base = texture(colorTexture, v_textureCoordinates);\n        float luma = dot(base.rgb, vec3(0.299,0.587,0.114));\n        float grain = fract(sin(dot(v_textureCoordinates * czm_frameNumber, vec2(91.7, 12.4))) * 43758.5453);\n        vec3 nvg = vec3(0.04, 0.95, 0.2) * luma * 1.45 + vec3((grain - 0.5) * noiseAmount);\n        out_FragColor = vec4(nvg, 1.0);\n      }`,
+      uniforms: { noiseAmount: postFx.noise },
+    });
+
+    const thermalStage = new PostProcessStage({
+      name: 'worldview-thermal',
+      fragmentShader: `uniform sampler2D colorTexture;\n      in vec2 v_textureCoordinates;\n      vec3 ramp(float t){\n        return mix(vec3(0.0,0.0,0.25), vec3(0.0,1.0,1.0), smoothstep(0.0,0.35,t))\n             + mix(vec3(0.0), vec3(1.0,0.95,0.0), smoothstep(0.35,0.7,t))\n             + mix(vec3(0.0), vec3(1.0,0.25,0.0), smoothstep(0.7,1.0,t));\n      }\n      void main(){\n        vec3 c = texture(colorTexture, v_textureCoordinates).rgb;\n        float heat = dot(c, vec3(0.2126,0.7152,0.0722));\n        out_FragColor = vec4(ramp(heat), 1.0);\n      }`,
+    });
+
+    const composite = new PostProcessStageComposite({
+      name: 'worldview-postfx',
+      stages: [tacticalStage, nvgStage, thermalStage],
+      inputPreviousStageTexture: true,
+      uniforms: {},
+    });
+
+    nvgStage.enabled = false;
+    thermalStage.enabled = false;
+
+    postFxRef.current = viewer.scene.postProcessStages.add(composite);
+
+    return () => {
+      if (postFxRef.current && !viewer.isDestroyed()) {
+        viewer.scene.postProcessStages.remove(postFxRef.current);
+      }
+      postFxRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!postFxRef.current) return;
+    const [tactical, nvg] = postFxRef.current.stages as PostProcessStage[];
+    tactical.uniforms.pixelation = postFx.pixelation;
+    tactical.uniforms.chromaticAberration = postFx.chromaticAberration;
+    tactical.uniforms.noiseAmount = postFx.noise;
+    nvg.uniforms.noiseAmount = postFx.noise;
+  }, [postFx]);
+
   // Apply visual modes
   useEffect(() => {
     if (viewerRef.current?.cesiumElement) {
       const viewer = viewerRef.current.cesiumElement;
       if (visualMode === 'night-vision') {
-        viewer.scene.backgroundColor = Color.fromCssColorString('#0a2e0a');
-        viewer.scene.globe.baseColor = Color.fromCssColorString('#0a2e0a');
+        viewer.scene.backgroundColor = Color.fromCssColorString('#031205');
+        viewer.scene.globe.baseColor = Color.fromCssColorString('#031205');
       } else if (visualMode === 'thermal') {
-        viewer.scene.backgroundColor = Color.fromCssColorString('#3a0a0a');
-        viewer.scene.globe.baseColor = Color.fromCssColorString('#3a0a0a');
+        viewer.scene.backgroundColor = Color.fromCssColorString('#220606');
+        viewer.scene.globe.baseColor = Color.fromCssColorString('#220606');
       } else {
         viewer.scene.backgroundColor = Color.BLACK;
-        viewer.scene.globe.baseColor = Color.BLUE;
+        viewer.scene.globe.baseColor = Color.fromCssColorString('#021629');
+      }
+
+      if (postFxRef.current) {
+        const [tactical, nvg, thermal] = postFxRef.current.stages as PostProcessStage[];
+        tactical.enabled = crtEnabled;
+        nvg.enabled = visualMode === 'night-vision';
+        thermal.enabled = visualMode === 'thermal';
       }
     }
-  }, [visualMode]);
+  }, [visualMode, crtEnabled]);
 
   // Hotkeys for POI jumping
   useEffect(() => {
@@ -380,8 +445,12 @@ const GlobeViewer = () => {
           }
         }}
       >
+        {import.meta.env.VITE_GOOGLE_3D_TILES_API_KEY ? (
+          <Cesium3DTileset url={`https://tile.googleapis.com/v1/3dtiles/root.json?key=${import.meta.env.VITE_GOOGLE_3D_TILES_API_KEY}`} />
+        ) : null}
+
         <PrimitiveLayer data={aircraftData} show={layers.aircraft} idPrefix="ac" color={Color.ORANGE} pixelSize={8} label="callsign" />
-        <PrimitiveLayer data={militaryFlightsData} show={layers.militaryFlights} idPrefix="mil" color={Color.LIME} pixelSize={8} label="callsign" />
+        <PrimitiveLayer data={militaryFlightsData} show={layers.militaryFlights} idPrefix="mil" color={Color.fromCssColorString('#ff7a00')} pixelSize={8} label="callsign" />
         <PrimitiveLayer data={satelliteData} show={layers.satellites} idPrefix="sat" color={Color.fromCssColorString('#BC13FE')} pixelSize={6} label="name" />
         <PrimitiveLayer data={earthquakeData} show={layers.earthquakes} idPrefix="eq" color={Color.RED.withAlpha(0.7)} pixelSize={(eq) => Math.max(5, eq.mag * 3)} label={(eq) => `M${eq.mag.toFixed(1)}`} />
         <PrimitiveLayer data={marineTrafficData} show={layers.marineTraffic} idPrefix="ship" color={Color.BLUE} pixelSize={6} label="name" />
@@ -451,6 +520,11 @@ const GlobeViewer = () => {
           <ImageryLayer imageryProvider={weatherProvider} alpha={0.6} />
         )}
       </Viewer>
+
+      <div className="absolute top-4 right-4 bg-black/70 border border-green-900/50 p-2 text-[10px] uppercase tracking-widest text-green-400 rounded pointer-events-none z-10">
+        <div>Detection Mode: {selectedEntity ? 'LOCKED' : 'SCANNING'}</div>
+        <div>Tracks: {aircraftData.length + satelliteData.length + militaryFlightsData.length}</div>
+      </div>
 
       {/* Coordinate Display Overlay */}
       <div className="absolute bottom-4 left-4 bg-black/80 border border-green-900/50 p-2 text-xs font-mono text-green-500 rounded backdrop-blur-md pointer-events-none z-10">
