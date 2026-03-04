@@ -29,7 +29,16 @@ interface WorldViewState {
     pixelation: number;
     chromaticAberration: number;
     noise: number;
-    bloom: number;
+  };
+  performance: {
+    fps: number;
+    entityCount: number;
+    autoFastMode: boolean;
+    autoClustering: boolean;
+    manualFastMode: boolean;
+    manualClustering: boolean;
+    replayMode: boolean;
+    context3dRequested: boolean;
   };
   currentTime: Date;
   selectedEntity: any | null;
@@ -37,6 +46,7 @@ interface WorldViewState {
   setVisualMode: (mode: WorldViewState['visualMode']) => void;
   toggleCrt: () => void;
   setPostFx: (key: keyof WorldViewState['postFx'], value: number) => void;
+  setPerformance: (perf: Partial<WorldViewState['performance']>) => void;
   setCurrentTime: (time: Date) => void;
   setSelectedEntity: (entity: any) => void;
 }
@@ -67,10 +77,19 @@ export const useWorldViewStore = create<WorldViewState>((set) => ({
   visualMode: 'normal',
   crtEnabled: true,
   postFx: {
-    pixelation: 0.18,
-    chromaticAberration: 0.003,
+    pixelation: 0.16,
+    chromaticAberration: 0.002,
     noise: 0.08,
-    bloom: 1,
+  },
+  performance: {
+    fps: 60,
+    entityCount: 0,
+    autoFastMode: false,
+    autoClustering: false,
+    manualFastMode: true,
+    manualClustering: false,
+    replayMode: false,
+    context3dRequested: false,
   },
   currentTime: new Date(),
   selectedEntity: null,
@@ -82,6 +101,8 @@ export const useWorldViewStore = create<WorldViewState>((set) => ({
   toggleCrt: () => set((state) => ({ crtEnabled: !state.crtEnabled })),
   setPostFx: (key, value) =>
     set((state) => ({ postFx: { ...state.postFx, [key]: value } })),
+  setPerformance: (perf) =>
+    set((state) => ({ performance: { ...state.performance, ...perf } })),
   setCurrentTime: (time) => set({ currentTime: time }),
   setSelectedEntity: (entity) => set({ selectedEntity: entity }),
 }));

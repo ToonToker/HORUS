@@ -38,8 +38,17 @@ const Sidebar = () => {
           <div className="space-y-6">
             <div><h3 className="panel-h">Aviation</h3><LayerRow keyName="aircraft" /><LayerRow keyName="militaryFlights" /></div>
             <div><h3 className="panel-h">Space</h3><LayerRow keyName="satellites" /></div>
-            <div><h3 className="panel-h">Earth & Environment</h3><LayerRow keyName="earthquakes" /><LayerRow keyName="magnetosphere" /><LayerRow keyName="weatherRadar" /><LayerRow keyName="wildfires" /></div>
-            <div><h3 className="panel-h">Urban Grid</h3><LayerRow keyName="streetTraffic" /><LayerRow keyName="bikeshare" /><LayerRow keyName="pois" /></div>
+            <div><h3 className="panel-h">Earth</h3><LayerRow keyName="earthquakes" /></div>
+
+            <h3 className="panel-h">Performance Governor</h3>
+            <div className="space-y-2 border border-green-900/40 rounded p-3 bg-black/40 text-xs">
+              <div className="flex justify-between"><span className="text-green-700">FPS</span><span>{performance.fps.toFixed(0)}</span></div>
+              <div className="flex justify-between"><span className="text-green-700">Entities</span><span>{performance.entityCount}</span></div>
+              <button className={`w-full p-2 border rounded flex items-center justify-center gap-2 ${performance.manualFastMode ? 'border-green-500 bg-green-900/30' : 'border-green-900/50'}`} onClick={() => setPerformance({ manualFastMode: !performance.manualFastMode })}><Zap size={14} /> Fast Mode (Manual)</button>
+              <button className={`w-full p-2 border rounded flex items-center justify-center gap-2 ${performance.manualClustering ? 'border-green-500 bg-green-900/30' : 'border-green-900/50'}`} onClick={() => setPerformance({ manualClustering: !performance.manualClustering })}><Boxes size={14} /> Cluster Entities (Manual)</button>
+              <button className={`w-full p-2 border rounded ${performance.context3dRequested ? 'border-green-500 bg-green-900/30' : 'border-green-900/50'}`} onClick={() => setPerformance({ context3dRequested: !performance.context3dRequested })}>Load 3D Context</button>
+              <div className="text-[10px] text-green-700">Auto Fast: {performance.autoFastMode ? 'ON' : 'OFF'} | Auto Cluster: {performance.autoClustering ? 'ON' : 'OFF'}</div>
+            </div>
 
             <h3 className="panel-h">Visual Modes</h3>
             <div className="grid grid-cols-3 gap-2">
@@ -49,8 +58,7 @@ const Sidebar = () => {
             </div>
 
             <button onClick={toggleCrt} className={`w-full p-2 rounded flex items-center justify-center gap-2 border ${crtEnabled ? 'bg-green-900/40 border-green-500' : 'bg-black border-green-900/50 hover:bg-green-900/20'}`}>
-              <Monitor size={16} />
-              <span className="text-xs uppercase tracking-wider">CRT {crtEnabled ? 'ON' : 'OFF'}</span>
+              <Monitor size={16} /><span className="text-xs uppercase tracking-wider">CRT {crtEnabled ? 'ON' : 'OFF'}</span>
             </button>
 
             <div className="space-y-2 border border-green-900/40 rounded p-3 bg-black/40">

@@ -1,5 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Search, Clock, Map, Crosshair } from 'lucide-react';
+import { useWorldViewStore } from '../store';
+
+const CITIES: Record<string, [number, number, number]> = {
+  pentagon: [-77.0559, 38.8719, 1800],
+  'burj khalifa': [55.2744, 25.1972, 1400],
+  'london bridge': [-0.0877, 51.5079, 1200],
+};
 
 const CITIES: Record<string, [number, number, number]> = {
   pentagon: [-77.0559, 38.8719, 1800],
@@ -33,12 +40,43 @@ const TopBar = () => {
     viewer.camera.flyTo({ destination: (window as any).Cesium.Cartesian3.fromDegrees(match[0], match[1], match[2]), duration: 2.2 });
   };
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        (document.getElementById('command-palette') as HTMLInputElement | null)?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const runCommand = (raw: string) => {
+    const cmd = raw.trim().toLowerCase();
+    const viewer = (window as any).__WORLDVIEW_VIEWER__;
+
+    if (cmd === 'toggle 3d context') {
+      useWorldViewStore.setState((state) => ({
+        performance: {
+          ...state.performance,
+          context3dRequested: !state.performance.context3dRequested,
+        },
+      }));
+      return;
+    }
+
+    const target = cmd.replace(/^go to\s+/, '');
+    const match = CITIES[target];
+    if (viewer && match) {
+      viewer.camera.flyTo({ destination: (window as any).Cesium.Cartesian3.fromDegrees(match[0], match[1], match[2]), duration: 2.2 });
+    }
+  };
+
   return (
     <div className="h-14 bg-black/80 border-b border-green-900/50 flex items-center justify-between px-6 text-green-500 font-mono backdrop-blur-md hud-glow">
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2 text-green-400 font-bold tracking-widest text-xl">
-          <Crosshair size={24} className="text-green-500" />
-          WORLDVIEW
+          <Crosshair size={24} className="text-green-500" /> WORLDVIEW
         </div>
       </div>
 
@@ -49,27 +87,17 @@ const TopBar = () => {
         <input
           id="command-palette"
           type="text"
-          className="w-full bg-black border border-green-900/50 rounded py-1.5 pl-10 pr-4 text-sm text-green-400 placeholder-green-800 focus:outline-none focus:border-green-500 transition-colors"
-          placeholder="⌘/Ctrl+K — go to Pentagon / Burj Khalifa / London Bridge"
+          className="w-full bg-black border border-green-900/50 rounded py-1.5 pl-10 pr-4 text-sm text-green-400 placeholder-green-800 focus:outline-none focus:border-green-500"
+          placeholder="⌘/Ctrl+K — go to Pentagon, find aircraft AAL123, toggle 3d context"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              executeCommand(query);
-            }
-          }}
+          onKeyDown={(e) => e.key === 'Enter' && runCommand(query)}
         />
       </div>
 
       <div className="flex items-center gap-6 text-sm">
-        <div className="flex items-center gap-2">
-          <Clock size={16} />
-          <span>{utcTime} UTC</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Map size={16} />
-          <span className="uppercase tracking-wider">Google 3D Tiles</span>
-        </div>
+        <div className="flex items-center gap-2"><Clock size={16} /><span>{new Date().toISOString().slice(11, 19)} UTC</span></div>
+        <div className="flex items-center gap-2"><Map size={16} /><span className="uppercase tracking-wider">Fast Intel Mode</span></div>
       </div>
     </div>
   );
