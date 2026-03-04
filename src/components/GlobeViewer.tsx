@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Viewer, Entity, PointGraphics, PolylineGraphics, Cesium3DTileset, ImageryLayer, useCesium } from 'resium';
 import { Cartesian3, Color, UrlTemplateImageryProvider, PointPrimitiveCollection, LabelCollection, ScreenSpaceEventHandler, ScreenSpaceEventType, PostProcessStage, PostProcessStageComposite } from 'cesium';
+import React, { useEffect, useRef, useState } from 'react';
+import { Viewer, Entity, PointGraphics, LabelGraphics, PolylineGraphics, Cesium3DTileset, ImageryLayer, useCesium } from 'resium';
+import { Cartesian3, Color, createOsmBuildingsAsync, UrlTemplateImageryProvider, PointPrimitiveCollection, LabelCollection, ScreenSpaceEventHandler, ScreenSpaceEventType, PostProcessStage, PostProcessStageComposite } from 'cesium';
 import { io } from 'socket.io-client';
 import { useWorldViewStore } from '../store';
 
@@ -105,11 +108,36 @@ const GlobeViewer = () => {
   const [militaryFlightsData, setMilitaryFlightsData] = useState<Track[]>([]);
   const [satelliteData, setSatelliteData] = useState<Track[]>([]);
   const [earthquakeData, setEarthquakeData] = useState<Track[]>([]);
+  const { layers, visualMode, crtEnabled, postFx, selectedEntity, setSelectedEntity } = useWorldViewStore();
+  const [aircraftData, setAircraftData] = useState<any[]>([]);
+  const [militaryFlightsData, setMilitaryFlightsData] = useState<any[]>([]);
+  const [satelliteData, setSatelliteData] = useState<any[]>([]);
+  const [earthquakeData, setEarthquakeData] = useState<any[]>([]);
+  const [marineTrafficData, setMarineTrafficData] = useState<any[]>([]);
+  const [submarineCablesData, setSubmarineCablesData] = useState<any[]>([]);
+  const [wildfiresData, setWildfiresData] = useState<any[]>([]);
+  const [newsHeatmapData, setNewsHeatmapData] = useState<any[]>([]);
+  const [powerGridData, setPowerGridData] = useState<any[]>([]);
+  const [dataCentersData, setDataCentersData] = useState<any[]>([]);
+  const [cctvMeshData, setCctvMeshData] = useState<any[]>([]);
+  const [magnetosphereData, setMagnetosphereData] = useState<any[]>([]);
+  const [weatherRadarData, setWeatherRadarData] = useState<any[]>([]);
+  const [streetTrafficData, setStreetTrafficData] = useState<any[]>([]);
+  const [bikeshareData, setBikeshareData] = useState<any[]>([]);
+  const [poisData, setPoisData] = useState<any[]>([]);
+  const [internetDevicesData, setInternetDevicesData] = useState<any[]>([]);
+  const [wigleWifiData, setWigleWifiData] = useState<any[]>([]);
+  const [snapchatMapsData, setSnapchatMapsData] = useState<any[]>([]);
+  const [pokemonGoData, setPokemonGoData] = useState<any[]>([]);
+  
+  const [osmBuildings, setOsmBuildings] = useState<any>(null);
+  const [currentCoords, setCurrentCoords] = useState({ lat: 0, lon: 0, alt: 0 });
   const [weatherProvider, setWeatherProvider] = useState<any>(null);
   const [currentCoords, setCurrentCoords] = useState({ lat: 0, lon: 0, alt: 0 });
   const viewerRef = useRef<any>(null);
   const postFxRef = useRef<PostProcessStageComposite | null>(null);
   const historyRef = useRef<Record<string, number[]>>({});
+  const postFxRef = useRef<PostProcessStageComposite | null>(null);
 
   const entityCount = aircraftData.length + militaryFlightsData.length + satelliteData.length + earthquakeData.length;
   const highAltitude = currentCoords.alt > 600000;
@@ -150,6 +178,14 @@ const GlobeViewer = () => {
     const viewer = viewerRef.current.cesiumElement;
     (window as any).__WORLDVIEW_VIEWER__ = viewer;
     (window as any).Cesium = { Cartesian3 };
+    if (viewerRef.current?.cesiumElement) {
+      const viewer = viewerRef.current.cesiumElement;
+      (window as any).__WORLDVIEW_VIEWER__ = viewer;
+      (window as any).Cesium = { Cartesian3 };
+
+      createOsmBuildingsAsync().then((tileset) => {
+        viewer.scene.primitives.add(tileset);
+      });
 
     viewer.scene.globe.showGroundAtmosphere = false;
     viewer.scene.globe.depthTestAgainstTerrain = false;
@@ -235,6 +271,83 @@ const GlobeViewer = () => {
       thermal.enabled = visualMode === 'thermal';
     }
   }, [visualMode, crtEnabled, perfState.forceFastMode]);
+  useEffect(() => {
+    if (!viewerRef.current?.cesiumElement) return;
+    const viewer = viewerRef.current.cesiumElement;
+
+    const tacticalStage = new PostProcessStage({
+      name: 'worldview-tactical',
+      fragmentShader: `uniform sampler2D colorTexture;\n      in vec2 v_textureCoordinates;\n      uniform float pixelation;\n      uniform float chromaticAberration;\n      uniform float noiseAmount;\n      void main() {\n        vec2 uv = v_textureCoordinates;\n        vec2 p = vec2(max(pixelation, 0.001));\n        uv = floor(uv / p) * p;\n        vec2 shift = vec2(chromaticAberration, 0.0);\n        float r = texture(colorTexture, uv + shift).r;\n        float g = texture(colorTexture, uv).g;\n        float b = texture(colorTexture, uv - shift).b;\n        float scan = sin(uv.y * 1600.0) * 0.05;\n        float grain = fract(sin(dot(uv * czm_frameNumber, vec2(12.9898, 78.233))) * 43758.5453);\n        vec3 col = vec3(r, g, b) + scan + ((grain - 0.5) * noiseAmount);\n        out_FragColor = vec4(col, 1.0);\n      }`,
+      uniforms: {
+        pixelation: postFx.pixelation,
+        chromaticAberration: postFx.chromaticAberration,
+        noiseAmount: postFx.noise,
+      },
+    });
+
+    const nvgStage = new PostProcessStage({
+      name: 'worldview-nvg',
+      fragmentShader: `uniform sampler2D colorTexture;\n      in vec2 v_textureCoordinates;\n      uniform float noiseAmount;\n      void main(){\n        vec4 base = texture(colorTexture, v_textureCoordinates);\n        float luma = dot(base.rgb, vec3(0.299,0.587,0.114));\n        float grain = fract(sin(dot(v_textureCoordinates * czm_frameNumber, vec2(91.7, 12.4))) * 43758.5453);\n        vec3 nvg = vec3(0.04, 0.95, 0.2) * luma * 1.45 + vec3((grain - 0.5) * noiseAmount);\n        out_FragColor = vec4(nvg, 1.0);\n      }`,
+      uniforms: { noiseAmount: postFx.noise },
+    });
+
+    const thermalStage = new PostProcessStage({
+      name: 'worldview-thermal',
+      fragmentShader: `uniform sampler2D colorTexture;\n      in vec2 v_textureCoordinates;\n      vec3 ramp(float t){\n        return mix(vec3(0.0,0.0,0.25), vec3(0.0,1.0,1.0), smoothstep(0.0,0.35,t))\n             + mix(vec3(0.0), vec3(1.0,0.95,0.0), smoothstep(0.35,0.7,t))\n             + mix(vec3(0.0), vec3(1.0,0.25,0.0), smoothstep(0.7,1.0,t));\n      }\n      void main(){\n        vec3 c = texture(colorTexture, v_textureCoordinates).rgb;\n        float heat = dot(c, vec3(0.2126,0.7152,0.0722));\n        out_FragColor = vec4(ramp(heat), 1.0);\n      }`,
+    });
+
+    const composite = new PostProcessStageComposite({
+      name: 'worldview-postfx',
+      stages: [tacticalStage, nvgStage, thermalStage],
+      inputPreviousStageTexture: true,
+      uniforms: {},
+    });
+
+    nvgStage.enabled = false;
+    thermalStage.enabled = false;
+
+    postFxRef.current = viewer.scene.postProcessStages.add(composite);
+
+    return () => {
+      if (postFxRef.current && !viewer.isDestroyed()) {
+        viewer.scene.postProcessStages.remove(postFxRef.current);
+      }
+      postFxRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!postFxRef.current) return;
+    const [tactical, nvg] = postFxRef.current.stages as PostProcessStage[];
+    tactical.uniforms.pixelation = postFx.pixelation;
+    tactical.uniforms.chromaticAberration = postFx.chromaticAberration;
+    tactical.uniforms.noiseAmount = postFx.noise;
+    nvg.uniforms.noiseAmount = postFx.noise;
+  }, [postFx]);
+
+  // Apply visual modes
+  useEffect(() => {
+    if (viewerRef.current?.cesiumElement) {
+      const viewer = viewerRef.current.cesiumElement;
+      if (visualMode === 'night-vision') {
+        viewer.scene.backgroundColor = Color.fromCssColorString('#031205');
+        viewer.scene.globe.baseColor = Color.fromCssColorString('#031205');
+      } else if (visualMode === 'thermal') {
+        viewer.scene.backgroundColor = Color.fromCssColorString('#220606');
+        viewer.scene.globe.baseColor = Color.fromCssColorString('#220606');
+      } else {
+        viewer.scene.backgroundColor = Color.BLACK;
+        viewer.scene.globe.baseColor = Color.fromCssColorString('#021629');
+      }
+
+      if (postFxRef.current) {
+        const [tactical, nvg, thermal] = postFxRef.current.stages as PostProcessStage[];
+        tactical.enabled = crtEnabled;
+        nvg.enabled = visualMode === 'night-vision';
+        thermal.enabled = visualMode === 'thermal';
+      }
+    }
+  }, [visualMode, crtEnabled]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -277,6 +390,73 @@ const GlobeViewer = () => {
 
         {selectedEntity ? (
           <Entity id={`selected_${selectedEntity.id}`} position={Cartesian3.fromDegrees(selectedEntity.lon, selectedEntity.lat, selectedEntity.alt || 0)}>
+      <Viewer
+        full
+        ref={viewerRef}
+        timeline={false}
+        animation={false}
+        baseLayerPicker={false}
+        geocoder={false}
+        homeButton={false}
+        infoBox={false}
+        sceneModePicker={false}
+        selectionIndicator={false}
+        navigationHelpButton={false}
+        navigationInstructionsInitiallyVisible={false}
+        onClick={(e, target) => {
+          if (!target) {
+            setSelectedEntity(null);
+          }
+        }}
+      >
+        {import.meta.env.VITE_GOOGLE_3D_TILES_API_KEY ? (
+          <Cesium3DTileset url={`https://tile.googleapis.com/v1/3dtiles/root.json?key=${import.meta.env.VITE_GOOGLE_3D_TILES_API_KEY}`} />
+        ) : null}
+
+        <PrimitiveLayer data={aircraftData} show={layers.aircraft} idPrefix="ac" color={Color.ORANGE} pixelSize={8} label="callsign" />
+        <PrimitiveLayer data={militaryFlightsData} show={layers.militaryFlights} idPrefix="mil" color={Color.fromCssColorString('#ff7a00')} pixelSize={8} label="callsign" />
+        <PrimitiveLayer data={satelliteData} show={layers.satellites} idPrefix="sat" color={Color.fromCssColorString('#BC13FE')} pixelSize={6} label="name" />
+        <PrimitiveLayer data={earthquakeData} show={layers.earthquakes} idPrefix="eq" color={Color.RED.withAlpha(0.7)} pixelSize={(eq) => Math.max(5, eq.mag * 3)} label={(eq) => `M${eq.mag.toFixed(1)}`} />
+        <PrimitiveLayer data={marineTrafficData} show={layers.marineTraffic} idPrefix="ship" color={Color.BLUE} pixelSize={6} label="name" />
+        <PrimitiveLayer data={dataCentersData} show={layers.dataCenters} idPrefix="dc" color={Color.PURPLE} pixelSize={12} label="name" />
+        <PrimitiveLayer data={wildfiresData} show={layers.wildfires} idPrefix="fire" color={Color.ORANGERED.withAlpha(0.8)} pixelSize={(fire) => fire.intensity / 5} label={() => "FIRE"} />
+        <PrimitiveLayer data={newsHeatmapData} show={layers.newsHeatmap} idPrefix="news" color={(news) => news.sentiment === 'positive' ? Color.GREEN.withAlpha(0.6) : Color.RED.withAlpha(0.6)} pixelSize={(news) => news.intensity * 2} label={() => "NEWS EVENT"} />
+        <PrimitiveLayer data={powerGridData} show={layers.powerGrid} idPrefix="grid" color={(grid) => grid.status === 'stable' ? Color.LIME : Color.YELLOW} pixelSize={15} label={(grid) => `${grid.name} (${grid.status.toUpperCase()})`} />
+        <PrimitiveLayer data={cctvMeshData} show={layers.cctvMesh} idPrefix="cctv" color={(cctv) => cctv.status === 'Live' ? Color.DODGERBLUE : Color.GRAY} pixelSize={5} />
+        <PrimitiveLayer data={magnetosphereData} show={layers.magnetosphere} idPrefix="mag" color={Color.CYAN.withAlpha(0.5)} pixelSize={(mag) => mag.kpIndex * 2} />
+        <PrimitiveLayer data={streetTrafficData} show={layers.streetTraffic} idPrefix="traffic" color={(t) => t.flowSpeed > 80 ? Color.GREEN : t.flowSpeed > 40 ? Color.YELLOW : Color.RED} pixelSize={6} />
+        <PrimitiveLayer data={bikeshareData} show={layers.bikeshare} idPrefix="bike" color={Color.LIMEGREEN} pixelSize={5} />
+        <PrimitiveLayer data={poisData} show={layers.pois} idPrefix="poi" color={Color.ROYALBLUE} pixelSize={6} />
+        <PrimitiveLayer data={internetDevicesData} show={layers.internetDevices} idPrefix="device" color={Color.GOLD} pixelSize={4} />
+        <PrimitiveLayer data={wigleWifiData} show={layers.wigleWifi} idPrefix="wifi" color={Color.MAGENTA.withAlpha(0.6)} pixelSize={(w) => Math.max(2, (100 + w.signalStrength) / 10)} />
+        <PrimitiveLayer data={snapchatMapsData} show={layers.snapchatMaps} idPrefix="snap" color={Color.ORANGE.withAlpha(0.7)} pixelSize={(s) => s.heatIndex / 5} />
+        <PrimitiveLayer data={pokemonGoData} show={layers.pokemonGo} idPrefix="pogo" color={Color.HOTPINK} pixelSize={6} />
+
+        {/* Submarine Cables (Polylines) */}
+        {layers.submarineCables &&
+          submarineCablesData.map((cable) => {
+            const positions = cable.positions.flatMap((p: any) => [p.lon, p.lat, 0]);
+            return (
+              <Entity
+                key={cable.id}
+                id={cable.id}
+                name={cable.name}
+              >
+                <PolylineGraphics
+                  positions={Cartesian3.fromDegreesArrayHeights(positions)}
+                  width={2}
+                  material={Color.CYAN.withAlpha(0.5)}
+                />
+              </Entity>
+            );
+          })}
+
+        {/* Selected Entity Trail & Highlight */}
+        {selectedEntity && (
+          <Entity
+            id={`selected_${selectedEntity.id}`}
+            position={Cartesian3.fromDegrees(selectedEntity.lon, selectedEntity.lat, selectedEntity.alt || 0)}
+          >
             <PointGraphics pixelSize={12} color={Color.TRANSPARENT} outlineColor={Color.WHITE} outlineWidth={2} />
             {(() => {
               const histKey = Object.keys(historyRef.current).find((k) => k.endsWith(`_${selectedEntity.id}`));
@@ -297,6 +477,11 @@ const GlobeViewer = () => {
         <div>Detection: {selectedEntity ? 'LOCKED' : 'SCANNING'}</div>
       </div>
 
+        <div>Detection Mode: {selectedEntity ? 'LOCKED' : 'SCANNING'}</div>
+        <div>Tracks: {aircraftData.length + satelliteData.length + militaryFlightsData.length}</div>
+      </div>
+
+      {/* Coordinate Display Overlay */}
       <div className="absolute bottom-4 left-4 bg-black/80 border border-green-900/50 p-2 text-xs font-mono text-green-500 rounded backdrop-blur-md pointer-events-none z-10">
         <div>LAT: {currentCoords.lat.toFixed(4)}°</div>
         <div>LON: {currentCoords.lon.toFixed(4)}°</div>

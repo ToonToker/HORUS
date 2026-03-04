@@ -37,6 +37,7 @@ interface WorldViewState {
     forceClustering: boolean;
     replayMode: boolean;
     context3dRequested: boolean;
+    bloom: number;
   };
   currentTime: Date;
   selectedEntity: any | null;
@@ -86,6 +87,10 @@ export const useWorldViewStore = create<WorldViewState>((set) => ({
     forceClustering: false,
     replayMode: false,
     context3dRequested: false,
+    pixelation: 0.18,
+    chromaticAberration: 0.003,
+    noise: 0.08,
+    bloom: 1,
   },
   currentTime: new Date(),
   selectedEntity: null,

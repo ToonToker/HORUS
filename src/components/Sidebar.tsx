@@ -4,6 +4,10 @@ import { Layers, Briefcase, Bell, Eye, EyeOff, Monitor, Thermometer, Moon, Zap, 
 
 const Sidebar = () => {
   const { layers, toggleLayer, visualMode, setVisualMode, crtEnabled, toggleCrt, postFx, setPostFx, performance, setPerformance } = useWorldViewStore();
+import { Layers, Briefcase, Bell, Eye, EyeOff, Monitor, Thermometer, Moon } from 'lucide-react';
+
+const Sidebar = () => {
+  const { layers, toggleLayer, visualMode, setVisualMode, crtEnabled, toggleCrt, postFx, setPostFx } = useWorldViewStore();
   const [activeTab, setActiveTab] = useState<'layers' | 'cases' | 'alerts'>('layers');
 
   const LayerRow = ({ keyName }: { keyName: keyof typeof layers }) => (
@@ -20,6 +24,16 @@ const Sidebar = () => {
       <div className="flex border-b border-green-900/50">
         {[{ key: 'layers', icon: Layers, label: 'Layers' }, { key: 'cases', icon: Briefcase, label: 'Cases' }, { key: 'alerts', icon: Bell, label: 'Alerts' }].map((tab) => (
           <button key={tab.key} className={`flex-1 py-3 flex justify-center items-center gap-2 ${activeTab === tab.key ? 'bg-green-900/30 border-b-2 border-green-500' : 'hover:bg-green-900/10'}`} onClick={() => setActiveTab(tab.key as 'layers' | 'cases' | 'alerts')}>
+        {[
+          { key: 'layers', icon: Layers, label: 'Layers' },
+          { key: 'cases', icon: Briefcase, label: 'Cases' },
+          { key: 'alerts', icon: Bell, label: 'Alerts' },
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            className={`flex-1 py-3 flex justify-center items-center gap-2 ${activeTab === tab.key ? 'bg-green-900/30 border-b-2 border-green-500' : 'hover:bg-green-900/10'}`}
+            onClick={() => setActiveTab(tab.key as 'layers' | 'cases' | 'alerts')}
+          >
             <tab.icon size={16} /> {tab.label}
           </button>
         ))}
@@ -40,6 +54,8 @@ const Sidebar = () => {
               <button className={`w-full p-2 border rounded flex items-center justify-center gap-2 ${performance.forceClustering ? 'border-green-500 bg-green-900/30' : 'border-green-900/50'}`} onClick={() => setPerformance({ forceClustering: !performance.forceClustering })}><Boxes size={14} /> Cluster Entities</button>
               <button className={`w-full p-2 border rounded ${performance.context3dRequested ? 'border-green-500 bg-green-900/30' : 'border-green-900/50'}`} onClick={() => setPerformance({ context3dRequested: !performance.context3dRequested })}>Load 3D Context</button>
             </div>
+            <div><h3 className="panel-h">Earth & Environment</h3><LayerRow keyName="earthquakes" /><LayerRow keyName="magnetosphere" /><LayerRow keyName="weatherRadar" /><LayerRow keyName="wildfires" /></div>
+            <div><h3 className="panel-h">Urban Grid</h3><LayerRow keyName="streetTraffic" /><LayerRow keyName="bikeshare" /><LayerRow keyName="pois" /></div>
 
             <h3 className="panel-h">Visual Modes</h3>
             <div className="grid grid-cols-3 gap-2">
@@ -50,6 +66,8 @@ const Sidebar = () => {
 
             <button onClick={toggleCrt} className={`w-full p-2 rounded flex items-center justify-center gap-2 border ${crtEnabled ? 'bg-green-900/40 border-green-500' : 'bg-black border-green-900/50 hover:bg-green-900/20'}`}>
               <Monitor size={16} /><span className="text-xs uppercase tracking-wider">CRT {crtEnabled ? 'ON' : 'OFF'}</span>
+              <Monitor size={16} />
+              <span className="text-xs uppercase tracking-wider">CRT {crtEnabled ? 'ON' : 'OFF'}</span>
             </button>
 
             <div className="space-y-2 border border-green-900/40 rounded p-3 bg-black/40">
