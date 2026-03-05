@@ -8,37 +8,9 @@ const CITIES: Record<string, [number, number, number]> = {
   'london bridge': [-0.0877, 51.5079, 1200],
 };
 
-const CITIES: Record<string, [number, number, number]> = {
-  pentagon: [-77.0559, 38.8719, 1800],
-  'burj khalifa': [55.2744, 25.1972, 1400],
-  'london bridge': [-0.0877, 51.5079, 1200],
-};
-
 const TopBar = () => {
   const [query, setQuery] = useState('');
-  const utcTime = useMemo(() => new Date().toISOString().split('T')[1].split('.')[0], []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        const el = document.getElementById('command-palette') as HTMLInputElement | null;
-        el?.focus();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-
-  const executeCommand = (raw: string) => {
-    const cmd = raw.trim().toLowerCase();
-    const target = cmd.replace(/^go to\s+/, '');
-    const match = CITIES[target];
-    if (!match) return;
-    const viewer = (window as any).__WORLDVIEW_VIEWER__;
-    if (!viewer) return;
-    viewer.camera.flyTo({ destination: (window as any).Cesium.Cartesian3.fromDegrees(match[0], match[1], match[2]), duration: 2.2 });
-  };
+  const [utcTime, setUtcTime] = useState(() => new Date().toISOString().slice(11, 19));
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -51,6 +23,11 @@ const TopBar = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+
+  useEffect(() => {
+    const t = setInterval(() => setUtcTime(new Date().toISOString().slice(11, 19)), 1000);
+    return () => clearInterval(t);
+  }, []);
   const runCommand = (raw: string) => {
     const cmd = raw.trim().toLowerCase();
     const viewer = (window as any).__WORLDVIEW_VIEWER__;
@@ -96,7 +73,7 @@ const TopBar = () => {
       </div>
 
       <div className="flex items-center gap-6 text-sm">
-        <div className="flex items-center gap-2"><Clock size={16} /><span>{new Date().toISOString().slice(11, 19)} UTC</span></div>
+        <div className="flex items-center gap-2"><Clock size={16} /><span>{utcTime} UTC</span></div>
         <div className="flex items-center gap-2"><Map size={16} /><span className="uppercase tracking-wider">Fast Intel Mode</span></div>
       </div>
     </div>

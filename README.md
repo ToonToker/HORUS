@@ -157,6 +157,13 @@ If external APIs are unreachable (e.g., restricted network environments), the ap
 ### 4) TypeScript complains about `import.meta.env`
 - Ensure `src/vite-env.d.ts` exists and `npm run lint` is run from project root
 
+### 5) `npm audit` reports DOMPurify advisory via Cesium
+- This repo pins transitive resolution with `"overrides": { "dompurify": "^3.3.1" }` in `package.json`
+- If your local lockfile is stale, run:
+  - `rm -rf node_modules package-lock.json`
+  - `npm install`
+- Then verify with `npm ls dompurify` (should resolve to `3.3.1` or newer)
+
 ---
 
 ## Project Scripts

@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useWorldViewStore } from '../store';
-import { Layers, Briefcase, Bell, Eye, EyeOff, Monitor, Thermometer, Moon } from 'lucide-react';
+import { Layers, Briefcase, Bell, Eye, EyeOff, Monitor, Thermometer, Moon, Zap, Boxes } from 'lucide-react';
 
 const Sidebar = () => {
-  const { layers, toggleLayer, visualMode, setVisualMode, crtEnabled, toggleCrt, postFx, setPostFx } = useWorldViewStore();
+  const { layers, toggleLayer, visualMode, setVisualMode, crtEnabled, toggleCrt, postFx, setPostFx, performance, setPerformance } = useWorldViewStore();
   const [activeTab, setActiveTab] = useState<'layers' | 'cases' | 'alerts'>('layers');
 
   const LayerRow = ({ keyName }: { keyName: keyof typeof layers }) => (
@@ -18,16 +18,8 @@ const Sidebar = () => {
   return (
     <div className="w-80 h-full bg-black/80 border-r border-green-900/50 text-green-500 font-mono flex flex-col backdrop-blur-md hud-glow">
       <div className="flex border-b border-green-900/50">
-        {[
-          { key: 'layers', icon: Layers, label: 'Layers' },
-          { key: 'cases', icon: Briefcase, label: 'Cases' },
-          { key: 'alerts', icon: Bell, label: 'Alerts' },
-        ].map((tab) => (
-          <button
-            key={tab.key}
-            className={`flex-1 py-3 flex justify-center items-center gap-2 ${activeTab === tab.key ? 'bg-green-900/30 border-b-2 border-green-500' : 'hover:bg-green-900/10'}`}
-            onClick={() => setActiveTab(tab.key as 'layers' | 'cases' | 'alerts')}
-          >
+        {[{ key: 'layers', icon: Layers, label: 'Layers' }, { key: 'cases', icon: Briefcase, label: 'Cases' }, { key: 'alerts', icon: Bell, label: 'Alerts' }].map((tab) => (
+          <button key={tab.key} className={`flex-1 py-3 flex justify-center items-center gap-2 ${activeTab === tab.key ? 'bg-green-900/30 border-b-2 border-green-500' : 'hover:bg-green-900/10'}`} onClick={() => setActiveTab(tab.key as 'layers' | 'cases' | 'alerts')}>
             <tab.icon size={16} /> {tab.label}
           </button>
         ))}
