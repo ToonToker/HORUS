@@ -6,6 +6,7 @@ const Sidebar = () => {
   const [noteMarkdown, setNoteMarkdown] = useState('');
   const [status, setStatus] = useState<WitnessStatus>('NEUTRAL');
   const [akhStatus, setAkhStatus] = useState(3);
+  const [investigationSummary, setInvestigationSummary] = useState('');
 
   const saveWitness = async () => {
     if (!pendingWitnessPoint) return;
@@ -24,14 +25,16 @@ const Sidebar = () => {
     setNoteMarkdown('');
   };
 
-  const LayerRow = ({ keyName }: { keyName: keyof typeof layers }) => (
-    <div className="flex items-center justify-between p-2 hover:bg-green-900/20 rounded border border-transparent hover:border-green-900/50 transition-colors">
-      <span className="capitalize text-sm tracking-wide">{keyName.replace(/([A-Z])/g, ' $1').trim()}</span>
-      <button onClick={() => toggleLayer(keyName)} className="text-green-600 hover:text-green-400">
-        {layers[keyName] ? <Eye size={16} /> : <EyeOff size={16} />}
-      </button>
-    </div>
-  );
+  const runDeepScrape = async () => {
+    if (!pendingWitnessPoint) return;
+    const res = await fetch('/api/sigint/investigate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pendingWitnessPoint),
+    });
+    const json = await res.json();
+    setInvestigationSummary(`Owners ${json.owners ?? 0} · Associates ${json.associates ?? 0} · Resonance ${json.resonancePoints ?? 0}`);
+  };
 
   return (
     <aside className="w-80 h-full bg-[#000500] text-[#00FF41] border-r border-[#00FF41]/30 p-4 overflow-y-auto font-mono">
@@ -57,6 +60,8 @@ const Sidebar = () => {
         <label className="block mt-2 text-xs">Akh-Status {akhStatus}</label>
         <input type="range" min={1} max={5} value={akhStatus} onChange={(e) => setAkhStatus(Number(e.target.value))} className="w-full" />
         <button className="w-full mt-3 bg-[#FFD700] text-black py-1 font-bold" onClick={saveWitness}>Save Local Annotation</button>
+        <button className="w-full mt-2 border border-[#FFD700] text-[#FFD700] py-1 font-bold" onClick={runDeepScrape}>Deep-Scrape Routine</button>
+        {investigationSummary && <div className="text-[11px] mt-2 text-[#FFD700]">{investigationSummary}</div>}
       </div>
     </aside>
   );
