@@ -25,11 +25,28 @@ interface WorldViewState {
   };
   visualMode: 'normal' | 'night-vision' | 'thermal';
   crtEnabled: boolean;
+  postFx: {
+    pixelation: number;
+    chromaticAberration: number;
+    noise: number;
+  };
+  performance: {
+    fps: number;
+    entityCount: number;
+    autoFastMode: boolean;
+    autoClustering: boolean;
+    manualFastMode: boolean;
+    manualClustering: boolean;
+    replayMode: boolean;
+    context3dRequested: boolean;
+  };
   currentTime: Date;
   selectedEntity: any | null;
   toggleLayer: (layer: keyof WorldViewState['layers']) => void;
   setVisualMode: (mode: WorldViewState['visualMode']) => void;
   toggleCrt: () => void;
+  setPostFx: (key: keyof WorldViewState['postFx'], value: number) => void;
+  setPerformance: (perf: Partial<WorldViewState['performance']>) => void;
   setCurrentTime: (time: Date) => void;
   setSelectedEntity: (entity: any) => void;
 }
@@ -37,8 +54,8 @@ interface WorldViewState {
 export const useWorldViewStore = create<WorldViewState>((set) => ({
   layers: {
     aircraft: true,
-    militaryFlights: false,
-    satellites: false,
+    militaryFlights: true,
+    satellites: true,
     earthquakes: true,
     marineTraffic: false,
     submarineCables: false,
@@ -51,14 +68,29 @@ export const useWorldViewStore = create<WorldViewState>((set) => ({
     magnetosphere: false,
     streetTraffic: false,
     bikeshare: false,
-    pois: false,
+    pois: true,
     internetDevices: false,
     wigleWifi: false,
     snapchatMaps: false,
     pokemonGo: false,
   },
   visualMode: 'normal',
-  crtEnabled: false,
+  crtEnabled: true,
+  postFx: {
+    pixelation: 0.16,
+    chromaticAberration: 0.002,
+    noise: 0.08,
+  },
+  performance: {
+    fps: 60,
+    entityCount: 0,
+    autoFastMode: false,
+    autoClustering: false,
+    manualFastMode: true,
+    manualClustering: false,
+    replayMode: false,
+    context3dRequested: false,
+  },
   currentTime: new Date(),
   selectedEntity: null,
   toggleLayer: (layer) =>
@@ -67,6 +99,10 @@ export const useWorldViewStore = create<WorldViewState>((set) => ({
     })),
   setVisualMode: (mode) => set({ visualMode: mode }),
   toggleCrt: () => set((state) => ({ crtEnabled: !state.crtEnabled })),
+  setPostFx: (key, value) =>
+    set((state) => ({ postFx: { ...state.postFx, [key]: value } })),
+  setPerformance: (perf) =>
+    set((state) => ({ performance: { ...state.performance, ...perf } })),
   setCurrentTime: (time) => set({ currentTime: time }),
   setSelectedEntity: (entity) => set({ selectedEntity: entity }),
 }));
