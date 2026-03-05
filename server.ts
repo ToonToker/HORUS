@@ -7,424 +7,447 @@ import path from "path";
 import { fileURLToPath } from "url";
 import * as satellite from "satellite.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+type Entity = Record<string, any>;
 
+type CameraSource = {
+  name: string;
+  url: string;
+  baseLat: number;
+  baseLon: number;
+};
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = new Database("worldview.db");
 
-// Initialize DB
-db.exec(`
-  CREATE TABLE IF NOT EXISTS cases (
-    id TEXT PRIMARY KEY,
-    title TEXT,
-    description TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS alerts (
-    id TEXT PRIMARY KEY,
-    type TEXT,
-    message TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
+const CAMERA_SOURCES: CameraSource[] = [
+  { name: "NYCDOT", url: "https://webcams.nyctmc.org/", baseLat: 40.7128, baseLon: -74.006 },
+  { name: "Caltrans", url: "https://cwwp2.dot.ca.gov/vm/iframemap.htm", baseLat: 34.0522, baseLon: -118.2437 },
+];
+
+const INGESTION_INTERVALS_MS = {
+  aircraft: 15000,
+  military: 20000,
+  earthquakes: 60000,
+  satellites: 3600000,
+  cctv: 60000,
+  fires: 60000,
+  weatherAlerts: 60000,
+};
+
+const state = {
+  aircraft: [] as Entity[],
+  militaryFlights: [] as Entity[],
+  earthquakes: [] as Entity[],
+  satellites: [] as Entity[],
+  wildfire: [] as Entity[],
+  weatherAlerts: [] as Entity[],
+  cctv: [] as Entity[],
+  satrecs: [] as { name: string; satrec: satellite.SatRec; tle1: string; tle2: string }[],
+  tleCount: 0,
+  lastRun: {} as Record<string, number>,
+};
+
+function parseCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let curr = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const c = line[i];
+    if (c === '"') {
+      inQuotes = !inQuotes;
+    } else if (c === "," && !inQuotes) {
+      out.push(curr);
+      curr = "";
+    } else {
+      curr += c;
+    }
+  }
+  out.push(curr);
+  return out.map((v) => v.trim());
+}
+
+function extractMediaUrls(html: string, baseUrl: string): string[] {
+  const urls = new Set<string>();
+  const absoluteRegex = /(https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|m3u8)(?:\?[^\s"'<>]*)?)/gi;
+  for (const m of html.matchAll(absoluteRegex)) urls.add(m[1]);
+
+  const relativeRegex = /(?:src|href)=["']([^"']+\.(?:jpg|jpeg|png|m3u8)(?:\?[^"']*)?)["']/gi;
+  for (const m of html.matchAll(relativeRegex)) {
+    try {
+      urls.add(new URL(m[1], baseUrl).toString());
+    } catch {
+      // ignore malformed url
+    }
+  }
+
+  return [...urls];
+}
+
+async function fetchJson(url: string): Promise<any | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 12000);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": "WORLDVIEW-Ingestion-Worker/1.0" },
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function fetchText(url: string): Promise<string | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 12000);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": "WORLDVIEW-Ingestion-Worker/1.0" },
+    });
+    if (!res.ok) return null;
+    return res.text();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function ingestAircraftOpenSky() {
+  const data = await fetchJson("https://opensky-network.org/api/states/all");
+  if (!data?.states?.length) return;
+
+  state.aircraft = data.states
+    .map((s: any[]) => ({
+      id: s[0],
+      type: "aircraft",
+      source: "OpenSky",
+      callsign: s[1]?.trim() || "UNKNOWN",
+      lon: s[5],
+      lat: s[6],
+      alt: s[7] || s[13] || 0,
+      speed: s[9] || 0,
+      heading: s[10] || 0,
+      ts: Date.now(),
+    }))
+    .filter((a: Entity) => Number.isFinite(a.lat) && Number.isFinite(a.lon));
+
+  state.lastRun.aircraft = Date.now();
+}
+
+async function ingestMilitaryFlights() {
+  const candidates = [
+    "https://api.airplanes.live/v2/mil",
+    "https://api.adsb.lol/v2/mil",
+  ];
+
+  for (const endpoint of candidates) {
+    const data = await fetchJson(endpoint);
+    const list = data?.ac || data?.aircraft || data?.states;
+    if (!Array.isArray(list) || list.length === 0) continue;
+
+    state.militaryFlights = list
+      .map((f: any, i: number) => ({
+        id: f.hex || f.icao || f.id || `mil-${i}`,
+        type: "militaryFlight",
+        source: endpoint.includes("airplanes.live") ? "TheAirTraffic" : "ADSB-Exchange Community",
+        callsign: (f.flight || f.callsign || f.call || "MIL").toString().trim(),
+        lat: Number(f.lat ?? f.latitude),
+        lon: Number(f.lon ?? f.longitude),
+        alt: Number(f.alt_baro ?? f.alt_geom ?? f.altitude ?? 0),
+        speed: Number(f.gs ?? f.speed ?? 0),
+        heading: Number(f.track ?? f.heading ?? 0),
+        ts: Date.now(),
+      }))
+      .filter((f: Entity) => Number.isFinite(f.lat) && Number.isFinite(f.lon));
+
+    state.lastRun.military = Date.now();
+    return;
+  }
+}
+
+async function ingestEarthquakes() {
+  const data = await fetchJson("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson");
+  if (!data?.features) return;
+
+  state.earthquakes = data.features.map((f: any) => ({
+    id: f.id,
+    type: "earthquake",
+    source: "USGS",
+    title: f.properties?.title,
+    mag: f.properties?.mag,
+    lon: f.geometry?.coordinates?.[0],
+    lat: f.geometry?.coordinates?.[1],
+    depth: f.geometry?.coordinates?.[2],
+    ts: f.properties?.time || Date.now(),
+  })).filter((q: Entity) => Number.isFinite(q.lat) && Number.isFinite(q.lon));
+
+  state.lastRun.earthquakes = Date.now();
+}
+
+async function ingestSatellites() {
+  const text = await fetchText("https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle");
+  if (!text) return;
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const satrecs: typeof state.satrecs = [];
+
+  for (let i = 0; i < lines.length - 2; i += 3) {
+    const [name, tle1, tle2] = [lines[i], lines[i + 1], lines[i + 2]];
+    if (!tle1?.startsWith("1 ") || !tle2?.startsWith("2 ")) continue;
+    try {
+      satrecs.push({ name, satrec: satellite.twoline2satrec(tle1, tle2), tle1, tle2 });
+    } catch {
+      // ignore parse errors
+    }
+  }
+
+  state.satrecs = satrecs.slice(0, 750);
+  state.tleCount = state.satrecs.length;
+  state.lastRun.satellites = Date.now();
+}
+
+async function ingestCctvFeeds() {
+  const cameras: Entity[] = [];
+  for (const src of CAMERA_SOURCES) {
+    const html = await fetchText(src.url);
+    if (!html) continue;
+    const urls = extractMediaUrls(html, src.url).slice(0, 24);
+    urls.forEach((streamUrl, idx) => {
+      cameras.push({
+        id: `${src.name.toLowerCase()}-${idx}`,
+        type: "cctvMesh",
+        source: src.name,
+        streamUrl,
+        status: "Live",
+        cameraModel: "DOT Public Feed",
+        lat: src.baseLat + ((idx % 6) - 3) * 0.015,
+        lon: src.baseLon + (Math.floor(idx / 6) - 2) * 0.015,
+        ts: Date.now(),
+      });
+    });
+  }
+
+  if (cameras.length > 0) {
+    state.cctv = cameras;
+    state.lastRun.cctv = Date.now();
+  }
+}
+
+async function ingestWildfires() {
+  const csv = await fetchText("https://firms.modaps.eosdis.nasa.gov/data/active_fire/c6.1/csv/MODIS_C6_1_Global_24h.csv");
+  if (!csv) return;
+  const lines = csv.split("\n").filter(Boolean);
+  if (lines.length < 2) return;
+
+  const header = parseCsvLine(lines[0]);
+  const idxLat = header.findIndex((h) => h.toLowerCase() === "latitude");
+  const idxLon = header.findIndex((h) => h.toLowerCase() === "longitude");
+  const idxBright = header.findIndex((h) => h.toLowerCase().startsWith("brightness"));
+  const idxDate = header.findIndex((h) => h.toLowerCase() === "acq_date");
+
+  const out: Entity[] = [];
+  for (let i = 1; i < Math.min(lines.length, 1500); i += 1) {
+    const cols = parseCsvLine(lines[i]);
+    const lat = Number(cols[idxLat]);
+    const lon = Number(cols[idxLon]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    out.push({
+      id: `firms-${i}`,
+      type: "wildfire",
+      source: "NASA FIRMS",
+      lat,
+      lon,
+      brightness: Number(cols[idxBright] || 0),
+      ts: Date.parse(cols[idxDate] || "") || Date.now(),
+    });
+  }
+
+  state.wildfire = out;
+  state.lastRun.fires = Date.now();
+}
+
+function getCentroidFromGeometry(geometry: any): { lat: number; lon: number } | null {
+  if (!geometry) return null;
+  if (geometry.type === "Point" && Array.isArray(geometry.coordinates)) {
+    return { lon: geometry.coordinates[0], lat: geometry.coordinates[1] };
+  }
+
+  const poly = geometry.coordinates?.[0];
+  if (!Array.isArray(poly) || poly.length === 0) return null;
+  let latSum = 0;
+  let lonSum = 0;
+  for (const c of poly) {
+    lonSum += Number(c[0] || 0);
+    latSum += Number(c[1] || 0);
+  }
+  return { lat: latSum / poly.length, lon: lonSum / poly.length };
+}
+
+async function ingestWeatherAlerts() {
+  const data = await fetchJson("https://api.weather.gov/alerts/active?status=actual&message_type=alert");
+  if (!data?.features) return;
+
+  state.weatherAlerts = data.features
+    .map((f: any, idx: number) => {
+      const centroid = getCentroidFromGeometry(f.geometry);
+      if (!centroid) return null;
+      return {
+        id: f.id || `noaa-${idx}`,
+        type: "weatherRadar",
+        source: "NOAA",
+        event: f.properties?.event,
+        severity: f.properties?.severity,
+        headline: f.properties?.headline,
+        lat: centroid.lat,
+        lon: centroid.lon,
+        ts: Date.parse(f.properties?.sent || "") || Date.now(),
+      };
+    })
+    .filter(Boolean) as Entity[];
+
+  state.lastRun.weatherAlerts = Date.now();
+}
+
+function propagateSatellites() {
+  const now = new Date();
+  state.satellites = state.satrecs
+    .map((s) => {
+      try {
+        const pv = satellite.propagate(s.satrec, now);
+        if (!pv.position || typeof pv.position === "boolean") return null;
+        const gmst = satellite.gstime(now);
+        const geo = satellite.eciToGeodetic(pv.position, gmst);
+        return {
+          id: s.name,
+          type: "satellite",
+          source: "CelesTrak",
+          name: s.name,
+          lon: satellite.degreesLong(geo.longitude),
+          lat: satellite.degreesLat(geo.latitude),
+          alt: geo.height * 1000,
+          tle1: s.tle1,
+          tle2: s.tle2,
+          ts: now.getTime(),
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean) as Entity[];
+}
+
+async function runIngestionBoot() {
+  await Promise.allSettled([
+    ingestAircraftOpenSky(),
+    ingestMilitaryFlights(),
+    ingestEarthquakes(),
+    ingestSatellites(),
+    ingestCctvFeeds(),
+    ingestWildfires(),
+    ingestWeatherAlerts(),
+  ]);
+}
+
+function initDb() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cases (
+      id TEXT PRIMARY KEY,
+      title TEXT,
+      description TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS alerts (
+      id TEXT PRIMARY KEY,
+      type TEXT,
+      message TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+}
 
 async function startServer() {
+  initDb();
+
   const app = express();
   const PORT = 3000;
   const httpServer = createServer(app);
-  const io = new Server(httpServer, {
-    cors: {
-      origin: "*",
-    },
-  });
+  const io = new Server(httpServer, { cors: { origin: "*" } });
 
   app.use(express.json());
 
-  // API Routes
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
-  });
-
-  app.get("/api/cases", (req, res) => {
-    const cases = db.prepare("SELECT * FROM cases ORDER BY created_at DESC").all();
-    res.json(cases);
-  });
-
+  app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+  app.get("/api/cases", (_req, res) => res.json(db.prepare("SELECT * FROM cases ORDER BY created_at DESC").all()));
   app.post("/api/cases", (req, res) => {
     const { id, title, description } = req.body;
     db.prepare("INSERT INTO cases (id, title, description) VALUES (?, ?, ?)").run(id, title, description);
     res.json({ success: true });
   });
+  app.get("/api/alerts", (_req, res) => res.json(db.prepare("SELECT * FROM alerts ORDER BY created_at DESC LIMIT 50").all()));
 
-  app.get("/api/alerts", (req, res) => {
-    const alerts = db.prepare("SELECT * FROM alerts ORDER BY created_at DESC LIMIT 50").all();
-    res.json(alerts);
+  app.get("/api/ingestion/status", (_req, res) => {
+    res.json({
+      counts: {
+        aircraft: state.aircraft.length,
+        militaryFlights: state.militaryFlights.length,
+        satellites: state.satellites.length,
+        earthquakes: state.earthquakes.length,
+        weatherAlerts: state.weatherAlerts.length,
+        wildfire: state.wildfire.length,
+        cctv: state.cctv.length,
+        tleCount: state.tleCount,
+      },
+      lastRun: state.lastRun,
+      intervalsMs: INGESTION_INTERVALS_MS,
+    });
   });
 
-  // WebSocket for real-time data
   io.on("connection", (socket) => {
     console.log("Client connected:", socket.id);
-    socket.on("disconnect", () => {
-      console.log("Client disconnected:", socket.id);
-    });
+    socket.emit("data:aircraft", state.aircraft);
+    socket.emit("data:militaryFlights", state.militaryFlights);
+    socket.emit("data:satellites", state.satellites);
+    socket.emit("data:earthquakes", state.earthquakes);
+    socket.emit("data:wildfires", state.wildfire);
+    socket.emit("data:weatherAlerts", state.weatherAlerts);
+    socket.emit("data:cctvMesh", state.cctv);
+    socket.emit("data:satelliteTLE", state.satrecs.map((s) => ({ name: s.name, tle1: s.tle1, tle2: s.tle2 })));
+
+    socket.on("disconnect", () => console.log("Client disconnected:", socket.id));
   });
 
-  // Data State
-  let aircraftData: any[] = [];
-  let satelliteData: any[] = [];
-  let earthquakeData: any[] = [];
-  let satrecs: any[] = [];
-  let useSimulatedAircraft = false;
+  await runIngestionBoot();
+  propagateSatellites();
 
-  // Fetch OpenSky Data
-  const fetchAircraft = async () => {
-    try {
-      // US Bounding Box to reduce payload
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      const res = await fetch("https://opensky-network.org/api/states/all?lamin=24.396308&lomin=-125.0&lamax=49.384358&lomax=-66.93457", { 
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'WorldView-App/1.0'
-        }
-      });
-      clearTimeout(timeoutId);
-      
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.states) {
-          useSimulatedAircraft = false;
-          aircraftData = data.states.map((s: any) => ({
-            id: s[0],
-            type: "aircraft",
-            callsign: s[1] ? s[1].trim() : "UNKNOWN",
-            lon: s[5],
-            lat: s[6],
-            alt: s[7] || s[13] || 0,
-            speed: s[9],
-            heading: s[10],
-            ts: Date.now(),
-          })).filter((a: any) => a.lat != null && a.lon != null);
-        }
-      } else {
-        useSimulatedAircraft = true;
-      }
-    } catch (e: any) {
-      if (e.name !== 'AbortError' && !e.message?.includes('aborted')) {
-        console.error("Failed to fetch aircraft data, falling back to simulated data:", e.message);
-      }
-      useSimulatedAircraft = true;
-    }
-  };
+  setInterval(ingestAircraftOpenSky, INGESTION_INTERVALS_MS.aircraft);
+  setInterval(ingestMilitaryFlights, INGESTION_INTERVALS_MS.military);
+  setInterval(ingestEarthquakes, INGESTION_INTERVALS_MS.earthquakes);
+  setInterval(ingestSatellites, INGESTION_INTERVALS_MS.satellites);
+  setInterval(ingestCctvFeeds, INGESTION_INTERVALS_MS.cctv);
+  setInterval(ingestWildfires, INGESTION_INTERVALS_MS.fires);
+  setInterval(ingestWeatherAlerts, INGESTION_INTERVALS_MS.weatherAlerts);
 
-  // Fetch USGS Earthquakes
-  const fetchEarthquakes = async () => {
-    try {
-      const res = await fetch("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson");
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.features) {
-          earthquakeData = data.features.map((f: any) => ({
-            id: f.id,
-            type: "earthquake",
-            title: f.properties.title,
-            mag: f.properties.mag,
-            lon: f.geometry.coordinates[0],
-            lat: f.geometry.coordinates[1],
-            depth: f.geometry.coordinates[2],
-            ts: f.properties.time,
-          }));
-        }
-      }
-    } catch (e) {
-      console.error("Failed to fetch earthquake data", e);
-    }
-  };
-
-  // Fetch CelesTrak TLEs
-  const fetchSatellites = async () => {
-    try {
-      const res = await fetch("https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle");
-      if (res.ok) {
-        const text = await res.text();
-        const lines = text.split('\n');
-        satrecs = [];
-        // Parse TLEs (3 lines per sat)
-        for (let i = 0; i < lines.length - 2; i += 3) {
-          const name = lines[i].trim();
-          const tle1 = lines[i + 1].trim();
-          const tle2 = lines[i + 2].trim();
-          if (name && tle1 && tle2) {
-            try {
-              const satrec = satellite.twoline2satrec(tle1, tle2);
-              satrecs.push({ name, satrec });
-            } catch (e) {
-              // ignore invalid TLE
-            }
-          }
-        }
-        // Limit to first 500 satellites for performance
-        satrecs = satrecs.slice(0, 500);
-      }
-    } catch (e) {
-      console.error("Failed to fetch satellite data", e);
-    }
-  };
-
-  // Initial Fetches
-  fetchAircraft();
-  fetchEarthquakes();
-  fetchSatellites();
-
-  // Polling Intervals
-  setInterval(fetchAircraft, 15000); // 15s for OpenSky
-  setInterval(fetchEarthquakes, 60000); // 1m for USGS
-  setInterval(fetchSatellites, 3600000); // 1h for TLEs
-
-  // Real-time Emission Loop
   setInterval(() => {
-    const now = new Date();
-    const nowTime = now.getTime();
-    
-    // Simulated Aircraft (Global distribution)
-    if (useSimulatedAircraft) {
-      aircraftData = Array.from({ length: 300 }).map((_, i) => {
-        const t = nowTime / 20000 + i * 137.5; // Golden angle for distribution
-        const lat = Math.sin(i) * 60; // Spread across latitudes
-        const lon = (i * 137.5 + (nowTime / 10000)) % 360 - 180;
-        const dLon = 1; // Moving east
-        const dLat = Math.sin(t) * 0.1;
-        const heading = (Math.atan2(dLon, dLat) * 180 / Math.PI + 360) % 360;
-        return {
-          id: `flight-${i}`,
-          type: "aircraft",
-          callsign: `FLT${i}`,
-          flightNum: `AA${1000 + i}`,
-          lat: lat,
-          lon: lon,
-          alt: 30000 + Math.sin(nowTime / 5000 + i) * 5000,
-          heading: heading,
-          speed: 450 + Math.sin(nowTime / 2000 + i) * 50,
-          origin: "JFK",
-          dest: "LHR",
-          aircraftType: "B777",
-          ts: nowTime,
-        };
-      });
-    }
-
-    // Propagate satellites
-    satelliteData = satrecs.map((s) => {
-      try {
-        const positionAndVelocity = satellite.propagate(s.satrec, now);
-        const positionEci = positionAndVelocity.position;
-        if (typeof positionEci !== 'boolean' && positionEci) {
-          const gmst = satellite.gstime(now);
-          const positionGd = satellite.eciToGeodetic(positionEci, gmst);
-          return {
-            id: s.name,
-            type: "satellite",
-            name: s.name,
-            noradId: s.name.split(' ')[1] || Math.floor(Math.random() * 50000),
-            owner: Math.random() > 0.5 ? "SpaceX" : "NRO",
-            apogee: positionGd.height + 200,
-            perigee: positionGd.height - 200,
-            resolvedIps: `192.168.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}`,
-            lon: satellite.degreesLong(positionGd.longitude),
-            lat: satellite.degreesLat(positionGd.latitude),
-            alt: positionGd.height * 1000, // km to m
-            ts: now.getTime(),
-          };
-        }
-      } catch (e) {
-        return null;
-      }
-      return null;
-    }).filter(Boolean);
-
-    // Simulated Military Flights
-    const militaryFlights = Array.from({ length: 50 }).map((_, i) => {
-      const t = nowTime / 15000 + i * 73;
-      const lat = Math.sin(i * 13) * 70;
-      const lon = (i * 73 + (nowTime / 5000)) % 360 - 180;
-      const dLon = Math.cos(t);
-      const dLat = Math.sin(t);
-      const heading = (Math.atan2(dLon, dLat) * 180 / Math.PI + 360) % 360;
-      return {
-        id: `mil-${i}`,
-        type: "militaryFlight",
-        callsign: `VIPER${i}`,
-        squawk: Math.floor(1000 + Math.random() * 6000).toString(),
-        lat: lat,
-        lon: lon,
-        alt: 45000 + Math.sin(nowTime / 4000 + i) * 5000,
-        heading: heading,
-        speed: 800 + Math.sin(nowTime / 1000 + i) * 200,
-        missionType: Math.random() > 0.5 ? "CAP" : "RECON",
-        ts: nowTime,
-      };
-    });
-
-    // Simulated Magnetosphere
-    const magnetosphere = Array.from({ length: 100 }).map((_, i) => ({
-      id: `mag-${i}`,
-      type: "magnetosphere",
-      lat: (i * 137.5) % 180 - 90,
-      lon: (i * 137.5 * 2) % 360 - 180,
-      fluxDensity: 30000 + Math.random() * 30000,
-      kpIndex: Math.floor(Math.random() * 9),
-      lineOrientation: Math.random() * 360,
-      solarWindSpeed: 300 + Math.random() * 500,
-      ts: nowTime,
-    }));
-
-    // Simulated Weather Radar
-    const weatherRadar = Array.from({ length: 200 }).map((_, i) => ({
-      id: `wx-${i}`,
-      type: "weatherRadar",
-      lat: (i * 137.5) % 180 - 90,
-      lon: (i * 137.5 * 2) % 360 - 180,
-      precipRate: Math.random() * 60, // dBZ
-      windVelocity: Math.random() * 100,
-      cellMovement: Math.random() * 360,
-      stormTopHeight: Math.random() * 15000,
-      ts: nowTime,
-    }));
-
-    // Simulated Street Traffic
-    const streetTraffic = Array.from({ length: 300 }).map((_, i) => ({
-      id: `traffic-${i}`,
-      type: "streetTraffic",
-      lat: (i * 137.5) % 180 - 90,
-      lon: (i * 137.5 * 2) % 360 - 180,
-      flowSpeed: Math.random() * 120,
-      speedLimit: 100,
-      congestion: Math.random() * 100,
-      incidentReports: Math.floor(Math.random() * 5),
-      roadTemp: 10 + Math.random() * 30,
-      ts: nowTime,
-    }));
-
-    // Simulated Bikeshare
-    const bikeshare = Array.from({ length: 150 }).map((_, i) => ({
-      id: `bike-${i}`,
-      type: "bikeshare",
-      stationName: `Station ${i}`,
-      lat: (i * 137.5) % 180 - 90,
-      lon: (i * 137.5 * 2) % 360 - 180,
-      bikesAvailable: Math.floor(Math.random() * 20),
-      ebikes: Math.floor(Math.random() * 10),
-      dockVacancy: Math.floor(Math.random() * 15),
-      powerLevel: Math.floor(Math.random() * 100),
-      ts: nowTime,
-    }));
-
-    // Simulated POIs
-    const pois = Array.from({ length: 200 }).map((_, i) => ({
-      id: `poi-${i}`,
-      type: "poi",
-      landmarkName: `Landmark ${i}`,
-      category: "Historical",
-      hours: "9AM - 5PM",
-      wikipedia: "A significant historical landmark...",
-      elevation: Math.random() * 2000,
-      lat: (i * 137.5) % 180 - 90,
-      lon: (i * 137.5 * 2) % 360 - 180,
-      ts: nowTime,
-    }));
-
-    // Simulated Internet Devices
-    const internetDevices = Array.from({ length: 400 }).map((_, i) => ({
-      id: `iot-${i}`,
-      type: "internetDevice",
-      deviceType: Math.random() > 0.5 ? "Server" : "Fridge",
-      manufacturer: "CyberCorp",
-      osVersion: "v2.1.4",
-      uptime: `${Math.floor(Math.random() * 100)} days`,
-      openPorts: "80, 443, 22",
-      lat: (i * 137.5) % 180 - 90,
-      lon: (i * 137.5 * 2) % 360 - 180,
-      ts: nowTime,
-    }));
-
-    // Simulated WiGLE WiFi
-    const wigleWifi = Array.from({ length: 300 }).map((_, i) => ({
-      id: `wifi-${i}`,
-      type: "wigleWifi",
-      ssid: `Network_${i}`,
-      bssid: `00:14:22:01:23:${Math.floor(Math.random()*99)}`,
-      encryption: Math.random() > 0.5 ? "WPA3" : "WPA2",
-      channel: Math.floor(Math.random() * 11) + 1,
-      signalStrength: -30 - Math.random() * 60,
-      lat: (i * 137.5) % 180 - 90,
-      lon: (i * 137.5 * 2) % 360 - 180,
-      ts: nowTime,
-    }));
-
-    // Simulated CCTV Mesh
-    const cctvMesh = Array.from({ length: 250 }).map((_, i) => ({
-      id: `cctv-${i}`,
-      type: 'cctvMesh',
-      cameraModel: `AXIS P${Math.floor(Math.random()*9000)}`,
-      fov: `${Math.floor(Math.random()*120)}°`,
-      lat: (i * 137.5) % 180 - 90,
-      lon: (i * 137.5 * 2) % 360 - 180,
-      status: Math.random() > 0.2 ? 'Live' : 'Historical',
-      ts: nowTime,
-    }));
-
-    // Simulated Snapchat Maps
-    const snapchatMaps = Array.from({ length: 150 }).map((_, i) => ({
-      id: `snap-${i}`,
-      type: "snapchatMap",
-      bitmojiDensity: Math.floor(Math.random() * 100),
-      publicStory: "User story preview...",
-      heatIndex: Math.random() * 100,
-      lat: (i * 137.5) % 180 - 90,
-      lon: (i * 137.5 * 2) % 360 - 180,
-      ts: nowTime,
-    }));
-
-    // Simulated Pokemon GO
-    const pokemonGo = Array.from({ length: 200 }).map((_, i) => ({
-      id: `pogo-${i}`,
-      type: "pokemonGo",
-      poiType: Math.random() > 0.5 ? "Gym" : "Pokéstop",
-      teamControl: ["Valor", "Mystic", "Instinct"][Math.floor(Math.random() * 3)],
-      raidTimer: `${Math.floor(Math.random() * 45)} mins`,
-      lureStatus: Math.random() > 0.7 ? "Active" : "Inactive",
-      lat: (i * 137.5) % 180 - 90,
-      lon: (i * 137.5 * 2) % 360 - 180,
-      ts: nowTime,
-    }));
-
-    io.emit("data:aircraft", aircraftData);
-    io.emit("data:militaryFlights", militaryFlights);
-    io.emit("data:satellites", satelliteData);
-    io.emit("data:earthquakes", earthquakeData);
-    io.emit("data:magnetosphere", magnetosphere);
-    io.emit("data:weatherRadar", weatherRadar);
-    io.emit("data:streetTraffic", streetTraffic);
-    io.emit("data:bikeshare", bikeshare);
-    io.emit("data:pois", pois);
-    io.emit("data:internetDevices", internetDevices);
-    io.emit("data:wigleWifi", wigleWifi);
-    io.emit("data:cctvMesh", cctvMesh);
-    io.emit("data:snapchatMaps", snapchatMaps);
-    io.emit("data:pokemonGo", pokemonGo);
+    propagateSatellites();
+    io.emit("data:aircraft", state.aircraft);
+    io.emit("data:militaryFlights", state.militaryFlights);
+    io.emit("data:satellites", state.satellites);
+    io.emit("data:earthquakes", state.earthquakes);
+    io.emit("data:wildfires", state.wildfire);
+    io.emit("data:weatherAlerts", state.weatherAlerts);
+    io.emit("data:cctvMesh", state.cctv);
+    io.emit("data:satelliteTLE", state.satrecs.map((s) => ({ name: s.name, tle1: s.tle1, tle2: s.tle2 })));
   }, 2000);
 
-  // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
+    const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
     app.use(vite.middlewares);
   } else {
     app.use(express.static(path.join(__dirname, "dist")));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(__dirname, "dist", "index.html"));
-    });
+    app.get("*", (_req, res) => res.sendFile(path.join(__dirname, "dist", "index.html")));
   }
 
   httpServer.listen(PORT, "0.0.0.0", () => {
