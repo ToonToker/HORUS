@@ -24,6 +24,15 @@ const Sidebar = () => {
     setNoteMarkdown('');
   };
 
+  const LayerRow = ({ keyName }: { keyName: keyof typeof layers }) => (
+    <div className="flex items-center justify-between p-2 hover:bg-green-900/20 rounded border border-transparent hover:border-green-900/50 transition-colors">
+      <span className="capitalize text-sm tracking-wide">{keyName.replace(/([A-Z])/g, ' $1').trim()}</span>
+      <button onClick={() => toggleLayer(keyName)} className="text-green-600 hover:text-green-400">
+        {layers[keyName] ? <Eye size={16} /> : <EyeOff size={16} />}
+      </button>
+    </div>
+  );
+
   return (
     <aside className="w-80 h-full bg-[#000500] text-[#00FF41] border-r border-[#00FF41]/30 p-4 overflow-y-auto font-mono">
       <h2 className="text-sm tracking-[0.2em] text-[#FFD700] mb-3">SOVEREIGN WITNESS</h2>
