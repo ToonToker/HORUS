@@ -1,82 +1,23 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Clock, Map, Crosshair } from 'lucide-react';
-import { useWorldViewStore } from '../store';
-
-const CITIES: Record<string, [number, number, number]> = {
-  pentagon: [-77.0559, 38.8719, 1800],
-  'burj khalifa': [55.2744, 25.1972, 1400],
-  'london bridge': [-0.0877, 51.5079, 1200],
-};
 
 const TopBar = () => {
-  const [query, setQuery] = useState('');
-  const [utcTime, setUtcTime] = useState(() => new Date().toISOString().slice(11, 19));
+  const [status, setStatus] = useState<any>(null);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        (document.getElementById('command-palette') as HTMLInputElement | null)?.focus();
-      }
+    const load = async () => {
+      const res = await fetch('/api/sovereign/status');
+      setStatus(await res.json());
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    load();
+    const id = setInterval(load, 10000);
+    return () => clearInterval(id);
   }, []);
-
-
-  useEffect(() => {
-    const t = setInterval(() => setUtcTime(new Date().toISOString().slice(11, 19)), 1000);
-    return () => clearInterval(t);
-  }, []);
-  const runCommand = (raw: string) => {
-    const cmd = raw.trim().toLowerCase();
-    const viewer = (window as any).__WORLDVIEW_VIEWER__;
-
-    if (cmd === 'toggle 3d context') {
-      useWorldViewStore.setState((state) => ({
-        performance: {
-          ...state.performance,
-          context3dRequested: !state.performance.context3dRequested,
-        },
-      }));
-      return;
-    }
-
-    const target = cmd.replace(/^go to\s+/, '');
-    const match = CITIES[target];
-    if (viewer && match) {
-      viewer.camera.flyTo({ destination: (window as any).Cesium.Cartesian3.fromDegrees(match[0], match[1], match[2]), duration: 2.2 });
-    }
-  };
 
   return (
-    <div className="h-14 bg-black/80 border-b border-green-900/50 flex items-center justify-between px-6 text-green-500 font-mono backdrop-blur-md hud-glow">
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2 text-green-400 font-bold tracking-widest text-xl">
-          <Crosshair size={24} className="text-green-500" /> WORLDVIEW
-        </div>
-      </div>
-
-      <div className="flex-1 max-w-xl mx-8 relative">
-        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-          <Search size={16} className="text-green-700" />
-        </div>
-        <input
-          id="command-palette"
-          type="text"
-          className="w-full bg-black border border-green-900/50 rounded py-1.5 pl-10 pr-4 text-sm text-green-400 placeholder-green-800 focus:outline-none focus:border-green-500"
-          placeholder="⌘/Ctrl+K — go to Pentagon, find aircraft AAL123, toggle 3d context"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && runCommand(query)}
-        />
-      </div>
-
-      <div className="flex items-center gap-6 text-sm">
-        <div className="flex items-center gap-2"><Clock size={16} /><span>{utcTime} UTC</span></div>
-        <div className="flex items-center gap-2"><Map size={16} /><span className="uppercase tracking-wider">Fast Intel Mode</span></div>
-      </div>
-    </div>
+    <header className="h-12 bg-[#000500] border-b border-[#00FF41]/30 px-4 flex items-center justify-between font-mono text-[#00FF41]">
+      <div className="text-sm tracking-[0.3em] text-[#FFD700]">PROJECT HORUS · SOVEREIGN GEOSPATIAL ENGINE</div>
+      <div className="text-xs">OFFLINE {status?.outboundNetworkBlocked ? 'LOCKED' : 'UNKNOWN'} · BORDERS {status?.counts?.borders ?? 0}</div>
+    </header>
   );
 };
 
