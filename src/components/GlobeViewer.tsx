@@ -112,6 +112,25 @@ const GlobeViewer = () => {
   const viewerRef = useRef<any>(null);
   const postFxRef = useRef<PostProcessStageComposite | null>(null);
   const historyRef = useRef<Record<string, number[]>>({});
+  const postFxRef = useRef<PostProcessStageComposite | null>(null);
+
+  const entityCount = aircraftData.length + militaryFlightsData.length + satelliteData.length + earthquakeData.length;
+  const highAltitude = currentCoords.alt > 600000;
+  const activeFastMode = perfState.manualFastMode || perfState.autoFastMode || perfState.replayMode;
+  const activeClustering = perfState.manualClustering || perfState.autoClustering;
+  const canLoad3dContext = perfState.context3dRequested && currentCoords.alt < 5000 && !activeFastMode && !!import.meta.env.VITE_GOOGLE_3D_TILES_API_KEY;
+
+  const entityCount = aircraftData.length + militaryFlightsData.length + satelliteData.length + earthquakeData.length;
+  const highAltitude = currentCoords.alt > 600000;
+  const activeFastMode = perfState.manualFastMode || perfState.autoFastMode || perfState.replayMode;
+  const activeClustering = perfState.manualClustering || perfState.autoClustering;
+  const canLoad3dContext = perfState.context3dRequested && currentCoords.alt < 5000 && !activeFastMode && !!import.meta.env.VITE_GOOGLE_3D_TILES_API_KEY;
+
+  const entityCount = aircraftData.length + militaryFlightsData.length + satelliteData.length + earthquakeData.length;
+  const highAltitude = currentCoords.alt > 600000;
+  const activeFastMode = perfState.manualFastMode || perfState.autoFastMode || perfState.replayMode;
+  const activeClustering = perfState.manualClustering || perfState.autoClustering;
+  const canLoad3dContext = perfState.context3dRequested && currentCoords.alt < 5000 && !activeFastMode && !!import.meta.env.VITE_GOOGLE_3D_TILES_API_KEY;
 
   const entityCount = aircraftData.length + militaryFlightsData.length + satelliteData.length + earthquakeData.length + wildfireData.length + weatherAlertData.length + cctvData.length;
   const highAltitude = currentCoords.alt > 600000;
