@@ -5,8 +5,12 @@ const TopBar = () => {
 
   useEffect(() => {
     const load = async () => {
-      const res = await fetch('/api/sovereign/status');
-      setStatus(await res.json());
+      try {
+        const res = await fetch('/api/sovereign/status');
+        setStatus(await res.json());
+      } catch {
+        setStatus(null);
+      }
     };
     load();
     const id = setInterval(load, 10000);

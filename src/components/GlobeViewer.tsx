@@ -16,16 +16,6 @@ import { useWorldViewStore } from '../store';
 
 type Track = { id: string; lat?: number; lon?: number; from?: { lat: number; lon: number }; to?: { lat: number; lon: number }; intensity?: number; geometry?: any; properties?: any; type?: string; ts?: number; heading?: number; speed?: number; callsign?: string; name?: string; density?: number };
 
-const tacticalTileDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512">
-    <rect width="100%" height="100%" fill="#02110b"/>
-    <g stroke="#0f5d3a" stroke-width="1" opacity="0.35">
-      ${Array.from({ length: 16 }, (_, i) => `<line x1="${i * 32}" y1="0" x2="${i * 32}" y2="512"/>`).join('')}
-      ${Array.from({ length: 16 }, (_, i) => `<line x1="0" y1="${i * 32}" x2="512" y2="${i * 32}"/>`).join('')}
-    </g>
-  </svg>`,
-)}`;
-
 const GlobeViewer = () => {
   const viewerRef = useRef<any>(null);
   const { layers, setSelectedEntity, setPendingWitnessPoint, temporalHours } = useWorldViewStore();
@@ -113,7 +103,7 @@ const GlobeViewer = () => {
 
   return (
     <div className="w-full h-full relative">
-      <Viewer ref={viewerRef} full terrainProvider={undefined} baseLayerPicker={false} timeline={false} animation={false} geocoder={false} homeButton={false} sceneModePicker={false} navigationHelpButton={false} imageryProvider={new SingleTileImageryProvider({ url: tacticalTileDataUrl })}>
+      <Viewer ref={viewerRef} full terrainProvider={undefined} baseLayerPicker={false} timeline={false} animation={false} geocoder={false} homeButton={false} sceneModePicker={false} navigationHelpButton={false} imageryProvider={new SingleTileImageryProvider({ url: '/data/tactical-basemap.svg' })}>
         {layers.conflictZones && recent(conflicts).map((c) => <Entity key={c.id} position={Cartesian3.fromDegrees(c.lon ?? 0, c.lat ?? 0)} point={{ pixelSize: 6 + ((c.intensity ?? 1) * 2), color: Color.RED.withAlpha(0.7) }} properties={c} />)}
         {layers.breachLocator && breaches.map((b) => <Entity key={b.id} position={Cartesian3.fromDegrees(b.lon ?? 0, b.lat ?? 0)} point={{ pixelSize: 7, color: Color.fromCssColorString('#FFD700') }} properties={b} />)}
         {layers.witnessAnnotations && witnessAnnotations.map((n) => <Entity key={n.id} position={Cartesian3.fromDegrees(n.lon ?? 0, n.lat ?? 0)} point={{ pixelSize: 8, color: Color.LIME }} label={{ text: n.status ?? 'NOTE', fillColor: Color.LIME, font: '12px monospace', pixelOffset: new Cartesian2(0, -18) }} properties={n} />)}
