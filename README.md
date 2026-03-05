@@ -1,20 +1,43 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# PROJECT HORUS — Sovereign Geospatial Engine
 
-# Run and deploy your AI Studio app
+HORUS is a **local-first geospatial intelligence stack** under a ZERO-API-MANDATE.
 
-This contains everything you need to run your app locally.
+## Install
+```bash
+npm install
+npm run dev
+```
+Open `http://localhost:3000`.
 
-View your app in AI Studio: https://ai.studio/apps/c93c6d37-0afa-48ae-973d-182f20ba6347
+## Offline data roots
+- `data/boundaries` — GADM-style GeoJSON
+- `data/conflicts` — ACLED/UCDP CSV
+- `data/threats` — threat overlays + SIGINT files
 
-## Run Locally
+## HORUS-SIGINT modules (local correlation)
+- RF Acoustic Hekau nodes: `data/threats/radio_stations.csv`
+- Maritime AIS tracks: `data/threats/ais_vessels.csv`
+- Cyber threat events: `data/threats/cyber_attacks.json`
+- WiGle signal fog: `data/threats/wigle_cells.csv`
+- Shodan scrape cache: `data/threats/shodan_scrape.csv`
+- Name-to-grid ghost markers: `data/threats/name_address_grid.csv`
+- Deep-location people records: `data/threats/deep_location_people.csv`
 
-**Prerequisites:**  Node.js
+## Local scraping/normalization scripts
+Use archived/raw captures (not runtime API calls):
+```bash
+node scripts/scrape-rf-maritime.mjs
+node scripts/scrape-cyber.mjs
+```
+Input archive folder: `data/threats/raw`
 
+## APIs
+- `GET /api/health`
+- `GET /api/sovereign/status`
+- `GET /api/witness/annotations`
+- `POST /api/witness/annotations`
+- `POST /api/sigint/investigate`
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Notes
+- Runtime outbound network requests are blocked in `server.ts`.
+- Witness annotations and investigation records persist in local SQLite (`horus.db`).

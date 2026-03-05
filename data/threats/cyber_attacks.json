@@ -1,0 +1,1 @@
+{"events":[{"id":"cy-1","lat":37.7749,"lon":-122.4194,"intensity":4,"attackType":"DDoS","attackerIp":"198.18.0.15","targetPort":443,"ts":1730400000000},{"id":"cy-2","lat":51.5072,"lon":-0.1276,"intensity":3,"attackType":"Phishing","attackerIp":"203.0.113.23","targetPort":25,"ts":1730403600000}]}
