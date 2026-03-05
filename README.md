@@ -14,7 +14,7 @@ It fuses live/simulated intelligence layers (aircraft, satellites, seismic, etc.
   - CRT tactical effects with adjustable shader controls
 - Keyboard POI jumps (`Q`, `W`, `E`, `R`, `T`)
 - Command palette focus (`Cmd/Ctrl + K`)
-- WebSocket-fed live/simulated entity streams
+- WebSocket-fed keyless ingestion streams (server-side polling workers)
 
 ---
 
@@ -131,13 +131,17 @@ npm run lint
 
 ## Data Sources and Fallback Behavior
 
-WORLDVIEW attempts to fetch from public sources such as:
+WORLDVIEW ingests public, unauthenticated OSINT feeds from backend workers (the browser never calls these sources directly):
 
-- OpenSky Network (commercial aviation)
-- CelesTrak (satellite TLE)
-- USGS (earthquake feed)
+- OpenSky `states/all` for commercial aviation
+- Community military feed endpoints (`api.airplanes.live` / `api.adsb.lol`) when available
+- CelesTrak raw TLE text downloads for satellite propagation
+- USGS GeoJSON earthquake feed
+- NASA FIRMS active fire CSV
+- NOAA active weather alert JSON
+- DOT camera directory scraping for `.jpg` / `.m3u8` CCTV links
 
-If external APIs are unreachable (e.g., restricted network environments), the app falls back to simulated data for certain layers so the dashboard remains usable.
+All feeds are normalized on the server and pushed to the UI through Socket.IO to avoid CORS and client-side rate-limit issues.
 
 ---
 
@@ -149,7 +153,7 @@ If external APIs are unreachable (e.g., restricted network environments), the ap
 
 ### 2) No live aircraft/satellite updates
 - Check terminal logs for outbound network failures
-- In restricted environments this is expected; simulated fallback should appear
+- In restricted environments this is expected; check `/api/ingestion/status` for worker health and source reachability
 
 ### 3) Port already in use
 - Stop the conflicting process or change local runtime config

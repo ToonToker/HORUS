@@ -30,7 +30,7 @@ const Sidebar = () => {
           <div className="space-y-6">
             <div><h3 className="panel-h">Aviation</h3><LayerRow keyName="aircraft" /><LayerRow keyName="militaryFlights" /></div>
             <div><h3 className="panel-h">Space</h3><LayerRow keyName="satellites" /></div>
-            <div><h3 className="panel-h">Earth</h3><LayerRow keyName="earthquakes" /></div>
+            <div><h3 className="panel-h">Earth</h3><LayerRow keyName="earthquakes" /><LayerRow keyName="wildfires" /><LayerRow keyName="weatherRadar" /><LayerRow keyName="cctvMesh" /></div>
 
             <h3 className="panel-h">Performance Governor</h3>
             <div className="space-y-2 border border-green-900/40 rounded p-3 bg-black/40 text-xs">

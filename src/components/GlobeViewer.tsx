@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Viewer, Entity, PointGraphics, PolylineGraphics, Cesium3DTileset, ImageryLayer, useCesium } from 'resium';
-import { Cartesian2, Cartesian3, Color, UrlTemplateImageryProvider, PointPrimitiveCollection, LabelCollection, ScreenSpaceEventHandler, ScreenSpaceEventType, PostProcessStage, PostProcessStageComposite } from 'cesium';
+import { Viewer, Entity, PointGraphics, PolylineGraphics, Cesium3DTileset, useCesium } from 'resium';
+import { Cartesian2, Cartesian3, Color, PointPrimitiveCollection, LabelCollection, ScreenSpaceEventHandler, ScreenSpaceEventType, PostProcessStage, PostProcessStageComposite } from 'cesium';
 import { io } from 'socket.io-client';
 import { useWorldViewStore } from '../store';
 
@@ -105,7 +105,9 @@ const GlobeViewer = () => {
   const [militaryFlightsData, setMilitaryFlightsData] = useState<Track[]>([]);
   const [satelliteData, setSatelliteData] = useState<Track[]>([]);
   const [earthquakeData, setEarthquakeData] = useState<Track[]>([]);
-  const [weatherProvider, setWeatherProvider] = useState<any>(null);
+  const [wildfireData, setWildfireData] = useState<Track[]>([]);
+  const [weatherAlertData, setWeatherAlertData] = useState<Track[]>([]);
+  const [cctvData, setCctvData] = useState<Track[]>([]);
   const [currentCoords, setCurrentCoords] = useState({ lat: 0, lon: 0, alt: 0 });
   const viewerRef = useRef<any>(null);
   const postFxRef = useRef<PostProcessStageComposite | null>(null);
@@ -130,17 +132,13 @@ const GlobeViewer = () => {
   const activeClustering = perfState.manualClustering || perfState.autoClustering;
   const canLoad3dContext = perfState.context3dRequested && currentCoords.alt < 5000 && !activeFastMode && !!import.meta.env.VITE_GOOGLE_3D_TILES_API_KEY;
 
-  useEffect(() => {
-    fetch('https://api.rainviewer.com/public/weather-maps.json')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.radar?.past?.length) {
-          const latest = data.radar.past[data.radar.past.length - 1].path;
-          setWeatherProvider(new UrlTemplateImageryProvider({ url: `https://tilecache.rainviewer.com${latest}/256/{z}/{x}/{y}/2/1_1.png`, credit: 'RainViewer' }));
-        }
-      })
-      .catch(() => undefined);
-  }, []);
+  const entityCount = aircraftData.length + militaryFlightsData.length + satelliteData.length + earthquakeData.length + wildfireData.length + weatherAlertData.length + cctvData.length;
+  const highAltitude = currentCoords.alt > 600000;
+  const activeFastMode = perfState.manualFastMode || perfState.autoFastMode || perfState.replayMode;
+  const activeClustering = perfState.manualClustering || perfState.autoClustering;
+  const canLoad3dContext = perfState.context3dRequested && currentCoords.alt < 5000 && !activeFastMode && !!import.meta.env.VITE_GOOGLE_3D_TILES_API_KEY;
+
+
 
   useEffect(() => {
     const socket = io();
@@ -157,6 +155,9 @@ const GlobeViewer = () => {
     socket.on('data:militaryFlights', (data) => { updateHistory(data, 'mil', 15); setMilitaryFlightsData(data); });
     socket.on('data:satellites', (data) => { updateHistory(data, 'sat', 25); setSatelliteData(data); });
     socket.on('data:earthquakes', setEarthquakeData);
+    socket.on('data:wildfires', setWildfireData);
+    socket.on('data:weatherAlerts', setWeatherAlertData);
+    socket.on('data:cctvMesh', setCctvData);
     return () => socket.disconnect();
   }, []);
 
@@ -295,6 +296,9 @@ const GlobeViewer = () => {
         {layers.militaryFlights && <PrimitiveLayer data={militaryFlightsData} show idPrefix="mil" color={Color.fromCssColorString('#ff7a00')} pixelSize={(_, high) => (high ? 4 : 8)} label="callsign" highAlt={highAltitude} forceCluster={activeClustering} />}
         {layers.satellites && <PrimitiveLayer data={satelliteData} show idPrefix="sat" color={Color.fromCssColorString('#BC13FE')} pixelSize={(_, high) => (high ? 3 : 6)} label="name" highAlt={highAltitude} forceCluster={activeClustering} />}
         {layers.earthquakes && <PrimitiveLayer data={earthquakeData} show idPrefix="eq" color={Color.RED.withAlpha(0.8)} pixelSize={(eq, high) => (high ? 4 : Math.max(5, (eq.mag || 1) * 2))} label={(eq) => `M${(eq.mag || 0).toFixed(1)}`} highAlt={highAltitude} forceCluster={activeClustering} />}
+        {layers.wildfires && <PrimitiveLayer data={wildfireData} show idPrefix="fire" color={Color.fromCssColorString('#ff4d00')} pixelSize={(f, high) => (high ? 3 : Math.max(4, ((f.brightness || 300) - 280) / 18))} highAlt={highAltitude} forceCluster={activeClustering} />}
+        {layers.weatherRadar && <PrimitiveLayer data={weatherAlertData} show idPrefix="wx" color={Color.CYAN.withAlpha(0.9)} pixelSize={(_, high) => (high ? 3 : 7)} label={(w) => w.event || 'ALERT'} highAlt={highAltitude} forceCluster={activeClustering} />}
+        {layers.cctvMesh && <PrimitiveLayer data={cctvData} show idPrefix="cctv" color={Color.LIME.withAlpha(0.85)} pixelSize={(_, high) => (high ? 3 : 6)} label={(c) => c.source || 'DOT'} highAlt={highAltitude} forceCluster={activeClustering} />}
 
         {selectedEntity ? (
           <Entity id={`selected_${selectedEntity.id}`} position={Cartesian3.fromDegrees(selectedEntity.lon, selectedEntity.lat, selectedEntity.alt || 0)}>
@@ -308,7 +312,6 @@ const GlobeViewer = () => {
           </Entity>
         ) : null}
 
-        {layers.weatherRadar && weatherProvider ? <ImageryLayer imageryProvider={weatherProvider} alpha={0.5} /> : null}
       </Viewer>
 
       <div className="absolute top-4 right-4 bg-black/70 border border-green-900/50 p-2 text-[10px] uppercase tracking-widest text-green-400 rounded pointer-events-none z-10">
