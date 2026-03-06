@@ -191,6 +191,7 @@ async function startServer() {
 
   app.use(express.json());
   app.use("/data", express.static(DATA_ROOT));
+  app.use("/maps", express.static(path.join(__dirname, "maps")));
 
   app.get("/api/health", (_req, res) => res.json({ status: "field-of-reeds-ready", offline: true }));
   app.get("/api/sovereign/status", (_req, res) => res.json({
