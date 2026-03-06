@@ -1,20 +1,47 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# PROJECT HORUS — Sovereign Geospatial Engine
 
-# Run and deploy your AI Studio app
+HORUS is a **local-first geospatial intelligence suite** under a ZERO-API-MANDATE.
 
-This contains everything you need to run your app locally.
+## Run
+```bash
+npm install
+npm run dev
+```
+Open `http://localhost:3000`.
 
-View your app in AI Studio: https://ai.studio/apps/c93c6d37-0afa-48ae-973d-182f20ba6347
+## Core architecture
+- Zero outbound runtime API calls (blocked in server runtime).
+- Local map engine with local tiles from: `maps/tiles/{z}/{x}/{y}.svg`.
+- Local datasets from:
+  - `data/boundaries`
+  - `data/conflicts`
+  - `data/threats`
 
-## Run Locally
+## Sovereign Control Panel
+Use the ⚙ **Settings** button in the top-right to configure:
+- Scraping frequency (slider)
+- TOR/proxy routing toggle
+- Local data paths (WiGle, breach dump, boundaries)
+- Preferred raw radio/AIS source URLs
 
-**Prerequisites:**  Node.js
+## SIGINT layer files
+- RF nodes: `data/threats/radio_stations.csv`
+- Maritime: `data/threats/ais_vessels.csv`
+- Cyber: `data/threats/cyber_attacks.json`
+- WiFi signal fog: `data/threats/wigle_cells.csv`
+- Shodan-strip cache: `data/threats/shodan_scrape.csv`
+- Resonance/identity: `data/threats/name_address_grid.csv`, `data/threats/deep_location_people.csv`
 
+## APIs
+- `GET /api/health`
+- `GET /api/sovereign/status`
+- `GET /api/witness/annotations`
+- `POST /api/witness/annotations`
+- `POST /api/sigint/investigate`
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Helpers
+```bash
+./scripts/fetch-local-data.sh
+node scripts/scrape-rf-maritime.mjs
+node scripts/scrape-cyber.mjs
+```
