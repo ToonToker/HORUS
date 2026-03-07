@@ -24,6 +24,8 @@ type ValidationDecision = { valid: boolean; reason: string; latencyNs: number };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = new Database("horus.db");
+const MBTILES_PATH = path.join(__dirname, "maps", "offline.mbtiles");
+let mbtilesDb: Database.Database | null = null;
 const DATA_ROOT = path.join(__dirname, "data");
 const CASE_ROOT = path.join(__dirname, "cases");
 const DATA_DIRS = {
@@ -79,6 +81,39 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
 function ensureDataDirs() {
   Object.values(DATA_DIRS).forEach((d) => fs.mkdirSync(d, { recursive: true }));
   fs.mkdirSync(CASE_ROOT, { recursive: true });
+  fs.mkdirSync(path.dirname(MBTILES_PATH), { recursive: true });
+}
+
+function ensureMbtilesArchive() {
+  const tileDb = new Database(MBTILES_PATH);
+  tileDb.exec(`
+    CREATE TABLE IF NOT EXISTS metadata (name TEXT PRIMARY KEY, value TEXT);
+    CREATE TABLE IF NOT EXISTS tiles (zoom_level INTEGER, tile_column INTEGER, tile_row INTEGER, tile_data BLOB, PRIMARY KEY (zoom_level, tile_column, tile_row));
+    CREATE INDEX IF NOT EXISTS tiles_zxy_idx ON tiles (zoom_level, tile_column, tile_row);
+  `);
+
+  const onePxPng = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP4DwQACfsD/QN8tQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+
+  tileDb.prepare("INSERT OR REPLACE INTO metadata (name, value) VALUES (?, ?)").run("name", "HORUS Offline Tiles");
+  tileDb.prepare("INSERT OR REPLACE INTO metadata (name, value) VALUES (?, ?)").run("format", "png");
+  tileDb.prepare("INSERT OR REPLACE INTO metadata (name, value) VALUES (?, ?)").run("minzoom", "0");
+  tileDb.prepare("INSERT OR REPLACE INTO metadata (name, value) VALUES (?, ?)").run("maxzoom", "2");
+  tileDb.prepare("INSERT OR REPLACE INTO metadata (name, value) VALUES (?, ?)").run("bounds", "-180,-85,180,85");
+
+  for (let z = 0; z <= 2; z += 1) {
+    const n = 2 ** z;
+    for (let x = 0; x < n; x += 1) {
+      for (let y = 0; y < n; y += 1) {
+        const tmsY = n - 1 - y;
+        tileDb.prepare("INSERT OR IGNORE INTO tiles (zoom_level, tile_column, tile_row, tile_data) VALUES (?, ?, ?, ?)").run(z, x, tmsY, onePxPng);
+      }
+    }
+  }
+  tileDb.close();
+  mbtilesDb = new Database(MBTILES_PATH, { readonly: true });
 }
 
 function initDb() {
@@ -148,6 +183,26 @@ function initDb() {
       payload TEXT NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS intel_nodes (
+      id TEXT PRIMARY KEY,
+      case_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      properties_json TEXT NOT NULL DEFAULT '{}',
+      geometry TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS intel_edges (
+      id TEXT PRIMARY KEY,
+      case_id TEXT NOT NULL,
+      source_node_id TEXT NOT NULL,
+      target_node_id TEXT NOT NULL,
+      relationship_type TEXT NOT NULL,
+      weight REAL NOT NULL DEFAULT 1,
+      properties_json TEXT NOT NULL DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(source_node_id) REFERENCES intel_nodes(id),
+      FOREIGN KEY(target_node_id) REFERENCES intel_nodes(id)
+    );
     INSERT OR IGNORE INTO runtime_settings (id) VALUES ('global');
   `);
 
@@ -157,6 +212,41 @@ function initDb() {
     path.join(CASE_ROOT, state.activeCaseId),
   );
   fs.mkdirSync(path.join(CASE_ROOT, state.activeCaseId), { recursive: true });
+}
+
+function upsertGraphNode(node: { id: string; type: string; lat: number; lon: number; properties: Record<string, any> }) {
+  db.prepare(`
+    INSERT OR REPLACE INTO intel_nodes (id, case_id, type, properties_json, geometry)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(
+    node.id,
+    state.activeCaseId,
+    node.type,
+    JSON.stringify(node.properties ?? {}),
+    JSON.stringify({ type: "Point", coordinates: [node.lon, node.lat] }),
+  );
+}
+
+function insertGraphEdge(edge: {
+  id: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  relationshipType: string;
+  weight?: number;
+  properties?: Record<string, any>;
+}) {
+  db.prepare(`
+    INSERT OR REPLACE INTO intel_edges (id, case_id, source_node_id, target_node_id, relationship_type, weight, properties_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    edge.id,
+    state.activeCaseId,
+    edge.sourceNodeId,
+    edge.targetNodeId,
+    edge.relationshipType,
+    Number(edge.weight ?? 1),
+    JSON.stringify(edge.properties ?? {}),
+  );
 }
 
 function readJsonFile(filePath: string): any | null {
@@ -241,6 +331,13 @@ function persistIntelResourceNode(nodeFamily: string, node: Entity) {
     Number(node.confidence ?? 0.6),
     JSON.stringify(node),
   );
+  upsertGraphNode({
+    id: node.id,
+    type: node.nodeType ?? node.kind ?? nodeFamily,
+    lat: Number(node.lat),
+    lon: Number(node.lon),
+    properties: { nodeFamily, ...node },
+  });
 }
 
 
@@ -340,6 +437,7 @@ function loadSigintSuite() {
     if (!b) return [];
     return [{ id: `res-${s.id}`, from: { lat: b.lat, lon: b.lon }, to: { lat: s.lat, lon: s.lon }, ip: s.ip, port: s.port, service: s.service }];
   });
+}
 
   state.liquidityHeatmap = [...state.cyberThreats, ...state.vessels].slice(0, 200).map((n, i) => ({
     id: `liq-${i}`,
@@ -415,6 +513,33 @@ function scanLocalData() {
 
 function mcpRpcHandle(method: string, params: any) {
   switch (method) {
+    case "add_intel_node": {
+      const type = String(params?.type || "unknown");
+      const lat = Number(params?.lat);
+      const lng = Number(params?.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        throw new Error("add_intel_node requires numeric lat/lng");
+      }
+      const id = String(params?.id || `mcp-node-${Date.now()}`);
+      const properties = typeof params?.properties === "object" && params?.properties ? params.properties : {};
+      const node = { id, nodeType: type, lat, lon: lng, confidence: 0.8, verified: true, ts: Date.now(), ...properties };
+      persistIntelResourceNode("mcp-tool", node);
+      state.seekerNodes = [{ ...node }, ...state.seekerNodes].slice(0, 1000);
+      db.prepare("INSERT OR REPLACE INTO seeker_nodes (id, case_id, node_type, lat, lon, confidence, payload) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .run(id, state.activeCaseId, type, lat, lng, 0.8, JSON.stringify(node));
+      return { id, added: true };
+    }
+    case "link_intel_nodes": {
+      const sourceNodeId = String(params?.source_id || "").trim();
+      const targetNodeId = String(params?.target_id || "").trim();
+      const relationshipType = String(params?.relationship || "RELATED_TO").trim();
+      if (!sourceNodeId || !targetNodeId) {
+        throw new Error("link_intel_nodes requires source_id and target_id");
+      }
+      const id = `edge-${sourceNodeId}-${targetNodeId}-${Date.now()}`;
+      insertGraphEdge({ id, sourceNodeId, targetNodeId, relationshipType, weight: Number(params?.weight ?? 1), properties: params?.properties ?? {} });
+      return { id, linked: true, sourceNodeId, targetNodeId, relationshipType };
+    }
     case "mcp.getContext":
       return { mcpNodes: state.mcpNodes, liquidityHeatmap: state.liquidityHeatmap, seismicWindows: state.seismicWindows };
     case "mcp.getCases":
@@ -427,6 +552,14 @@ function mcpRpcHandle(method: string, params: any) {
         id,
         annotations: db.prepare("SELECT * FROM witness_annotations WHERE case_id = ? ORDER BY updated_at DESC").all(id),
         seekerNodes: db.prepare("SELECT * FROM seeker_nodes WHERE case_id = ? ORDER BY created_at DESC").all(id),
+      };
+    }
+    case "mcp.getGraph": {
+      const id = String(params?.id || state.activeCaseId);
+      return {
+        caseId: id,
+        nodes: db.prepare("SELECT * FROM intel_nodes WHERE case_id = ? ORDER BY created_at DESC LIMIT 5000").all(id),
+        edges: db.prepare("SELECT * FROM intel_edges WHERE case_id = ? ORDER BY created_at DESC LIMIT 5000").all(id),
       };
     }
     default:
@@ -456,6 +589,27 @@ function startLocalMcpSocket() {
     });
   });
   server.listen(sockPath, () => console.log(`HORUS MCP local socket ready: ${sockPath}`));
+}
+
+function startMcpStdioBridge() {
+  if (!process.env.HORUS_ENABLE_STDIO_MCP) return;
+  process.stdin.setEncoding("utf8");
+  let buffer = "";
+  process.stdin.on("data", (chunk) => {
+    buffer += chunk;
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const req = JSON.parse(line);
+        const result = mcpRpcHandle(req.method, req.params);
+        process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: req.id ?? null, result })}\n`);
+      } catch (error: any) {
+        process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32000, message: error?.message || "MCP error" } })}\n`);
+      }
+    }
+  });
 }
 
 function investigateCoordinate(lat: number, lon: number) {
@@ -497,6 +651,7 @@ function emitState(io: Server) {
 
 async function startServer() {
   ensureDataDirs();
+  ensureMbtilesArchive();
   initDb();
   scanLocalData();
 
@@ -507,7 +662,25 @@ async function startServer() {
 
   app.use(express.json());
   app.use("/data", express.static(DATA_ROOT));
-  app.use("/maps", express.static(path.join(__dirname, "maps")));
+  app.get("/maps/tiles/:z/:x/:y.:ext", (req, res) => {
+    const z = Number(req.params.z);
+    const x = Number(req.params.x);
+    const y = Number(req.params.y);
+    if (!mbtilesDb || !Number.isInteger(z) || !Number.isInteger(x) || !Number.isInteger(y)) {
+      res.status(404).end();
+      return;
+    }
+    const n = 2 ** z;
+    const tmsY = n - 1 - y;
+    const row = mbtilesDb.prepare("SELECT tile_data FROM tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?").get(z, x, tmsY) as { tile_data?: Buffer } | undefined;
+    if (!row?.tile_data) {
+      res.status(404).end();
+      return;
+    }
+    res.setHeader("content-type", "image/png");
+    res.setHeader("cache-control", "public, max-age=31536000, immutable");
+    res.end(row.tile_data);
+  });
 
   app.get("/api/health", (_req, res) => res.json({ status: "field-of-reeds-ready", offline: true }));
 
@@ -536,6 +709,19 @@ async function startServer() {
   }));
 
   app.get("/api/mcp/context", (_req, res) => res.json({ mcpNodes: state.mcpNodes, liquidityHeatmap: state.liquidityHeatmap }));
+
+
+  app.get("/api/mcp/sse", (req, res) => {
+    res.setHeader("content-type", "text/event-stream");
+    res.setHeader("cache-control", "no-cache");
+    res.setHeader("connection", "keep-alive");
+    const send = (payload: any) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    send({ jsonrpc: "2.0", method: "mcp.ready", params: { activeCaseId: state.activeCaseId } });
+
+    const onMcp = () => send({ jsonrpc: "2.0", method: "mcp.context", params: mcpRpcHandle("mcp.getContext", {}) });
+    const timer = setInterval(onMcp, 15000);
+    req.on("close", () => clearInterval(timer));
+  });
 
   app.post("/api/mcp/rpc", (req, res) => {
     try {
@@ -586,7 +772,12 @@ async function startServer() {
     const rows = db.prepare("SELECT * FROM intel_resource_nodes WHERE case_id = ? ORDER BY created_at DESC LIMIT 2000").all(state.activeCaseId);
     res.json({ activeCaseId: state.activeCaseId, nodes: rows });
   });
-}
+
+  app.get("/api/intel/graph", (_req, res) => {
+    const nodes = db.prepare("SELECT * FROM intel_nodes WHERE case_id = ? ORDER BY created_at DESC LIMIT 5000").all(state.activeCaseId);
+    const edges = db.prepare("SELECT * FROM intel_edges WHERE case_id = ? ORDER BY created_at DESC LIMIT 5000").all(state.activeCaseId);
+    res.json({ activeCaseId: state.activeCaseId, nodes, edges });
+  });
 
   app.post("/api/witness/annotations", (req, res) => {
     const payload = req.body as Partial<WitnessAnnotation>;
@@ -733,6 +924,7 @@ async function startServer() {
 
   httpServer.listen(PORT, "0.0.0.0", () => console.log(`HORUS server running on http://localhost:${PORT}`));
   startLocalMcpSocket();
+  startMcpStdioBridge();
 }
 
 startServer();

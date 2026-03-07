@@ -175,7 +175,7 @@ const GlobeViewer = () => {
       {tiles.map((t) => (
         <img
           key={`${t.tx}-${t.ty}-${t.x}`}
-          src={`/maps/tiles/${ZOOM}/${t.tx}/${t.ty}.svg`}
+          src={`/maps/tiles/${ZOOM}/${t.tx}/${t.ty}.png`}
           className="absolute"
           style={{ left: t.x, top: t.y, width: TILE, height: TILE }}
           draggable={false}

@@ -11,7 +11,7 @@ Open `http://localhost:3000`.
 
 ## Core architecture
 - Zero outbound runtime API calls (blocked in server runtime).
-- Local map engine with local tiles from: `maps/tiles/{z}/{x}/{y}.svg`.
+- Local MBTiles-backed tile server at `/maps/tiles/{z}/{x}/{y}.png` (served from `maps/offline.mbtiles`).
 - Local datasets from:
   - `data/boundaries`
   - `data/conflicts`
@@ -45,7 +45,8 @@ Use the ⚙ **Settings** button in the top-right to configure:
 - `GET /api/health`
 - `GET /api/sovereign/status`
 - `GET /api/mcp/context`
-- `POST /api/mcp/rpc` (JSON-RPC context bridge for local agent clients)
+- `POST /api/mcp/rpc` (JSON-RPC context bridge for local agent clients, includes `add_intel_node` and `link_intel_nodes`)
+- `GET /api/mcp/sse` (JSON-RPC notifications over SSE)
 - `GET /api/cases`
 - `POST /api/cases`
 - `POST /api/cases/activate`
@@ -54,6 +55,7 @@ Use the ⚙ **Settings** button in the top-right to configure:
 - `POST /api/seeker/ingest`
 - `GET /api/validation/high-entropy`
 - `GET /api/intel/resource-nodes`
+- `GET /api/intel/graph`
 - `POST /api/sigint/investigate`
 
 ## Helpers
@@ -74,3 +76,18 @@ node scripts/seeker-kernel.mjs
 docker compose up --build
 ```
 This keeps HORUS isolated with local mounted data/cases/tiles for Bazzell-standard separation.
+
+
+## MCP server modes
+- Local UNIX socket JSON-RPC: `/tmp/horus-mcp.sock`
+- HTTP JSON-RPC: `POST /api/mcp/rpc`
+- SSE notifications: `GET /api/mcp/sse`
+- Optional stdio JSON-RPC bridge: `HORUS_ENABLE_STDIO_MCP=1 node -e "import('./server.ts')"`
+
+## Air-gap veto middleware (Python)
+- `scripts/airgap_veto_middleware.py` installs a strict outbound veto that exits the process if any backend code attempts non-local outbound sockets or URL opens.
+- Use in Python kernels before network modules initialize:
+```python
+from scripts.airgap_veto_middleware import install_airgap_veto
+install_airgap_veto(allowed_proxy_hosts=['127.0.0.1'])
+```
