@@ -37,6 +37,7 @@ interface WorldViewState {
     mcpNodes: boolean;
     liquidityHeatmap: boolean;
     seismicWindows: boolean;
+    highEntropyNodes: boolean;
   };
   selectedEntity: any | null;
   pendingWitnessPoint: { lat: number; lon: number } | null;
@@ -88,6 +89,7 @@ export const useWorldViewStore = create<WorldViewState>((set) => ({
     mcpNodes: true,
     liquidityHeatmap: true,
     seismicWindows: true,
+    highEntropyNodes: true,
   },
   selectedEntity: null,
   pendingWitnessPoint: null,

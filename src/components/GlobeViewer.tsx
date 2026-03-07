@@ -61,6 +61,7 @@ const GlobeViewer = () => {
   const [mcpNodes, setMcpNodes] = useState<Track[]>([]);
   const [liquidityHeatmap, setLiquidityHeatmap] = useState<Track[]>([]);
   const [seismicWindows, setSeismicWindows] = useState<Track[]>([]);
+  const [highEntropyNodes, setHighEntropyNodes] = useState<Track[]>([]);
 
   useEffect(() => {
     const center = project(20, 0);
@@ -93,6 +94,7 @@ const GlobeViewer = () => {
     socket.on('data:mcpNodes', setMcpNodes);
     socket.on('data:liquidityHeatmap', setLiquidityHeatmap);
     socket.on('data:seismicWindows', setSeismicWindows);
+    socket.on('data:highEntropyNodes', setHighEntropyNodes);
     return () => socket.disconnect();
   }, []);
 
@@ -205,6 +207,7 @@ const GlobeViewer = () => {
       {layers.mcpNodes && mcpNodes.map((d) => marker(d, '#ff8a00', 6, d.kind ?? 'MCP'))}
       {layers.liquidityHeatmap && recent(liquidityHeatmap).map((d) => marker(d, '#ff4d00', 5 + Math.min(12, Number(d.intensity ?? 1))))}
       {layers.seismicWindows && recent(seismicWindows).map((d) => marker(d, '#00e5ff', 5 + Math.min(10, Number(d.intensity ?? 1))))}
+      {layers.highEntropyNodes && highEntropyNodes.map((d) => marker(d, '#ff00aa', 7, 'HIGH-ENTROPY'))}
 
       <div className="absolute left-3 bottom-3 text-xs text-emerald-300 bg-black/70 border border-emerald-600/50 p-2 rounded">HORUS MAP ONLINE · Local tile core active (drag to pan).</div>
     </div>

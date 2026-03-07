@@ -21,7 +21,7 @@ Open `http://localhost:3000`.
 ## New HORUS-INTELLIGENCE-ENTITY upgrades
 - **MCP Anchor Bridge:** loads local MCP context snapshots (`data/mcp/lob_context.json`, `data/mcp/osint_context.json`) and emits geospatial MCP nodes.
 - **Seeker Pipes:** `POST /api/seeker/ingest` accepts autonomous node discoveries (IP/wallet/MAC footprints).
-- **Maat Filter + 58ns Veto:** validation audit rejects `ISFET` noisy/unverified/low-confidence nodes before rendering.
+- **Maat Filter + 58ns Veto:** validation audit rejects `ISFET` noisy/unverified/low-confidence nodes before rendering and stores them in a local high-entropy quarantine queue.
 - **Case Isolation:** create/activate isolated investigations via API/UI, stored under `cases/<case-id>` and SQLite case IDs.
 - **Temporal layers:** liquidity heatmap + seismic windows available as independent render layers.
 
@@ -44,12 +44,14 @@ Use the ⚙ **Settings** button in the top-right to configure:
 - `GET /api/health`
 - `GET /api/sovereign/status`
 - `GET /api/mcp/context`
+- `POST /api/mcp/rpc` (JSON-RPC context bridge for local agent clients)
 - `GET /api/cases`
 - `POST /api/cases`
 - `POST /api/cases/activate`
 - `GET /api/witness/annotations`
 - `POST /api/witness/annotations`
 - `POST /api/seeker/ingest`
+- `GET /api/validation/high-entropy`
 - `POST /api/sigint/investigate`
 
 ## Helpers
@@ -58,3 +60,7 @@ Use the ⚙ **Settings** button in the top-right to configure:
 node scripts/scrape-rf-maritime.mjs
 node scripts/scrape-cyber.mjs
 ```
+
+
+## Local MCP socket
+- HORUS also exposes a local JSON-RPC newline protocol socket at `/tmp/horus-mcp.sock` for agent-to-agent context pull in air-gapped mode.

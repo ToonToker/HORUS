@@ -5,6 +5,7 @@ import { Server } from "socket.io";
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
+import net from "net";
 import { fileURLToPath } from "url";
 
 type Entity = Record<string, any>;
@@ -53,6 +54,7 @@ const state = {
   liquidityHeatmap: [] as Entity[],
   seismicWindows: [] as Entity[],
   investigations: [] as Entity[],
+  highEntropyNodes: [] as Entity[],
   activeCaseId: "default-case",
   lastScan: 0,
   audit: {
@@ -126,6 +128,14 @@ function initDb() {
       radio_source TEXT NOT NULL DEFAULT 'archive://radio/raw',
       ais_source TEXT NOT NULL DEFAULT 'archive://ais/raw',
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS high_entropy_nodes (
+      id TEXT PRIMARY KEY,
+      case_id TEXT NOT NULL,
+      source TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     INSERT OR IGNORE INTO runtime_settings (id) VALUES ('global');
   `);
@@ -320,6 +330,16 @@ function loadSeekerNodes() {
   `).all(state.activeCaseId).map((r: any) => ({ ...r, ...JSON.parse(r.payload || "{}") }));
 }
 
+function loadHighEntropyNodes() {
+  state.highEntropyNodes = db.prepare(`
+    SELECT id, case_id as caseId, source, reason, payload, created_at as createdAt
+    FROM high_entropy_nodes
+    WHERE case_id = ?
+    ORDER BY created_at DESC
+    LIMIT 500
+  `).all(state.activeCaseId).map((r: any) => ({ ...r, ...JSON.parse(r.payload || "{}") }));
+}
+
 function scanLocalData() {
   state.audit.accepted = 0;
   state.audit.vetoed = 0;
@@ -330,7 +350,53 @@ function scanLocalData() {
   loadMcpBridge();
   loadAnnotations();
   loadSeekerNodes();
+  loadHighEntropyNodes();
   state.lastScan = Date.now();
+}
+
+function mcpRpcHandle(method: string, params: any) {
+  switch (method) {
+    case "mcp.getContext":
+      return { mcpNodes: state.mcpNodes, liquidityHeatmap: state.liquidityHeatmap, seismicWindows: state.seismicWindows };
+    case "mcp.getCases":
+      return db.prepare("SELECT id, title, isolated_path as isolatedPath, created_at as createdAt FROM sovereign_cases ORDER BY created_at DESC").all();
+    case "mcp.getValidationAudit":
+      return { audit: state.audit, highEntropyNodes: state.highEntropyNodes };
+    case "mcp.getCase": {
+      const id = String(params?.id || state.activeCaseId);
+      return {
+        id,
+        annotations: db.prepare("SELECT * FROM witness_annotations WHERE case_id = ? ORDER BY updated_at DESC").all(id),
+        seekerNodes: db.prepare("SELECT * FROM seeker_nodes WHERE case_id = ? ORDER BY created_at DESC").all(id),
+      };
+    }
+    default:
+      throw new Error(`Unknown MCP method: ${method}`);
+  }
+}
+
+function startLocalMcpSocket() {
+  const sockPath = "/tmp/horus-mcp.sock";
+  try { fs.unlinkSync(sockPath); } catch {}
+  const server = net.createServer((socket) => {
+    let buffer = "";
+    socket.on("data", (chunk) => {
+      buffer += chunk.toString("utf8");
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const req = JSON.parse(line);
+          const result = mcpRpcHandle(req.method, req.params);
+          socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: req.id ?? null, result })}\n`);
+        } catch (error: any) {
+          socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32000, message: error?.message || "MCP error" } })}\n`);
+        }
+      }
+    });
+  });
+  server.listen(sockPath, () => console.log(`HORUS MCP local socket ready: ${sockPath}`));
 }
 
 function investigateCoordinate(lat: number, lon: number) {
@@ -403,6 +469,7 @@ async function startServer() {
       liquidityHeatmap: state.liquidityHeatmap.length,
       seismicWindows: state.seismicWindows.length,
       annotations: state.annotations.length,
+      highEntropyNodes: state.highEntropyNodes.length,
     },
     validationAudit: state.audit,
     lastScan: state.lastScan,
@@ -410,6 +477,18 @@ async function startServer() {
   }));
 
   app.get("/api/mcp/context", (_req, res) => res.json({ mcpNodes: state.mcpNodes, liquidityHeatmap: state.liquidityHeatmap }));
+
+  app.post("/api/mcp/rpc", (req, res) => {
+    try {
+      const id = req.body?.id ?? null;
+      const method = String(req.body?.method || "");
+      const params = req.body?.params;
+      const result = mcpRpcHandle(method, params);
+      res.json({ jsonrpc: "2.0", id, result });
+    } catch (error: any) {
+      res.status(400).json({ jsonrpc: "2.0", id: req.body?.id ?? null, error: { code: -32000, message: error?.message || "MCP error" } });
+    }
+  });
 
   app.get("/api/cases", (_req, res) => {
     const rows = db.prepare("SELECT * FROM sovereign_cases ORDER BY created_at DESC").all();
@@ -443,6 +522,7 @@ async function startServer() {
   });
 
   app.get("/api/witness/annotations", (_req, res) => res.json(state.annotations));
+  app.get("/api/validation/high-entropy", (_req, res) => res.json({ activeCaseId: state.activeCaseId, nodes: state.highEntropyNodes }));
 
   app.post("/api/witness/annotations", (req, res) => {
     const payload = req.body as Partial<WitnessAnnotation>;
@@ -489,12 +569,20 @@ async function startServer() {
     })).filter((n: any) => Number.isFinite(n.lat) && Number.isFinite(n.lon));
 
     const passed = applyMaatFilter(normalized);
+    const rejected = normalized.filter((n) => !passed.find((p) => p.id === n.id));
     const stmt = db.prepare("INSERT OR REPLACE INTO seeker_nodes (id, case_id, node_type, lat, lon, confidence, payload) VALUES (?, ?, ?, ?, ?, ?, ?)");
     for (const n of passed) {
       stmt.run(n.id, state.activeCaseId, n.nodeType, n.lat, n.lon, n.confidence, JSON.stringify(n.payload));
     }
 
+    const qstmt = db.prepare("INSERT OR REPLACE INTO high_entropy_nodes (id, case_id, source, reason, payload) VALUES (?, ?, ?, ?, ?)");
+    for (const n of rejected) {
+      const decision = maatValidationPipe(n);
+      qstmt.run(n.id, state.activeCaseId, "seeker-ingest", decision.reason, JSON.stringify(n));
+    }
+
     loadSeekerNodes();
+    loadHighEntropyNodes();
     io.emit("data:seekerNodes", state.seekerNodes);
     res.json({ success: true, received: normalized.length, accepted: passed.length, vetoed: normalized.length - passed.length });
   });
@@ -527,6 +615,7 @@ async function startServer() {
       ["data:mcpNodes", state.mcpNodes],
       ["data:liquidityHeatmap", state.liquidityHeatmap],
       ["data:seismicWindows", state.seismicWindows],
+      ["data:highEntropyNodes", state.highEntropyNodes],
     ].forEach(([event, payload]) => socket.emit(event as string, payload));
   });
 
@@ -544,6 +633,7 @@ async function startServer() {
   }
 
   httpServer.listen(PORT, "0.0.0.0", () => console.log(`HORUS server running on http://localhost:${PORT}`));
+  startLocalMcpSocket();
 }
 
 startServer();
