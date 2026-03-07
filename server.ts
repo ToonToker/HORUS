@@ -586,6 +586,7 @@ async function startServer() {
     const rows = db.prepare("SELECT * FROM intel_resource_nodes WHERE case_id = ? ORDER BY created_at DESC LIMIT 2000").all(state.activeCaseId);
     res.json({ activeCaseId: state.activeCaseId, nodes: rows });
   });
+}
 
   app.post("/api/witness/annotations", (req, res) => {
     const payload = req.body as Partial<WitnessAnnotation>;
