@@ -640,8 +640,8 @@ async function startServer() {
 
     const qstmt = db.prepare("INSERT OR REPLACE INTO high_entropy_nodes (id, case_id, source, reason, payload) VALUES (?, ?, ?, ?, ?)");
     for (const n of rejected) {
-      const decision = maatValidationPipe(n);
-      qstmt.run(n.id, state.activeCaseId, "seeker-ingest", decision.reason, JSON.stringify(n));
+      const decision = gatekeeper.audit(n);
+      qstmt.run(n.id, state.activeCaseId, "seeker-ingest", decision.reason, JSON.stringify({ ...n, flags: decision.flags, entropy: decision.entropy }));
     }
 
     loadSeekerNodes();

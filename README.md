@@ -67,3 +67,10 @@ node scripts/seeker-kernel.mjs
 
 ## Local MCP socket
 - HORUS also exposes a local JSON-RPC newline protocol socket at `/tmp/horus-mcp.sock` for agent-to-agent context pull in air-gapped mode.
+
+
+## Containerized pristine runtime
+```bash
+docker compose up --build
+```
+This keeps HORUS isolated with local mounted data/cases/tiles for Bazzell-standard separation.
