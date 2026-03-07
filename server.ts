@@ -473,6 +473,7 @@ async function startServer() {
     io.emit("data:witnessAnnotations", state.annotations);
     res.json({ success: true, id, caseId: state.activeCaseId });
   });
+}
 
   app.post("/api/seeker/ingest", (req, res) => {
     const incoming = Array.isArray(req.body?.nodes) ? req.body.nodes : [];
