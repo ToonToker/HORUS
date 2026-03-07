@@ -33,6 +33,10 @@ interface WorldViewState {
     signalFog: boolean;
     resonanceLinks: boolean;
     ghostMarkers: boolean;
+    seekerNodes: boolean;
+    mcpNodes: boolean;
+    liquidityHeatmap: boolean;
+    seismicWindows: boolean;
   };
   selectedEntity: any | null;
   pendingWitnessPoint: { lat: number; lon: number } | null;
@@ -80,6 +84,10 @@ export const useWorldViewStore = create<WorldViewState>((set) => ({
     signalFog: false,
     resonanceLinks: true,
     ghostMarkers: true,
+    seekerNodes: true,
+    mcpNodes: true,
+    liquidityHeatmap: true,
+    seismicWindows: true,
   },
   selectedEntity: null,
   pendingWitnessPoint: null,

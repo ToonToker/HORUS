@@ -15,6 +15,8 @@ type Track = {
   name?: string;
   density?: number;
   status?: string;
+  nodeType?: string;
+  kind?: string;
 };
 
 const TILE = 256;
@@ -55,6 +57,10 @@ const GlobeViewer = () => {
   const [resonanceLinks, setResonanceLinks] = useState<Track[]>([]);
   const [ghostMarkers, setGhostMarkers] = useState<Track[]>([]);
   const [witnessAnnotations, setWitnessAnnotations] = useState<Track[]>([]);
+  const [seekerNodes, setSeekerNodes] = useState<Track[]>([]);
+  const [mcpNodes, setMcpNodes] = useState<Track[]>([]);
+  const [liquidityHeatmap, setLiquidityHeatmap] = useState<Track[]>([]);
+  const [seismicWindows, setSeismicWindows] = useState<Track[]>([]);
 
   useEffect(() => {
     const center = project(20, 0);
@@ -83,6 +89,10 @@ const GlobeViewer = () => {
     socket.on('data:resonanceLinks', setResonanceLinks);
     socket.on('data:ghostMarkers', setGhostMarkers);
     socket.on('data:witnessAnnotations', setWitnessAnnotations);
+    socket.on('data:seekerNodes', setSeekerNodes);
+    socket.on('data:mcpNodes', setMcpNodes);
+    socket.on('data:liquidityHeatmap', setLiquidityHeatmap);
+    socket.on('data:seismicWindows', setSeismicWindows);
     return () => socket.disconnect();
   }, []);
 
@@ -191,6 +201,10 @@ const GlobeViewer = () => {
       {layers.signalFog && signalFog.map((d) => marker(d, '#00FF41', 4 + Math.min(10, Math.round((d.density ?? 1) / 2))))}
       {layers.ghostMarkers && ghostMarkers.map((d) => marker(d, '#dddddd', 6, d.name))}
       {layers.witnessAnnotations && witnessAnnotations.map((d) => marker(d, '#00FF41', 8, d.status))}
+      {layers.seekerNodes && seekerNodes.map((d) => marker(d, '#FFD700', 7, d.nodeType ?? 'SEEKER'))}
+      {layers.mcpNodes && mcpNodes.map((d) => marker(d, '#ff8a00', 6, d.kind ?? 'MCP'))}
+      {layers.liquidityHeatmap && recent(liquidityHeatmap).map((d) => marker(d, '#ff4d00', 5 + Math.min(12, Number(d.intensity ?? 1))))}
+      {layers.seismicWindows && recent(seismicWindows).map((d) => marker(d, '#00e5ff', 5 + Math.min(10, Number(d.intensity ?? 1))))}
 
       <div className="absolute left-3 bottom-3 text-xs text-emerald-300 bg-black/70 border border-emerald-600/50 p-2 rounded">HORUS MAP ONLINE · Local tile core active (drag to pan).</div>
     </div>

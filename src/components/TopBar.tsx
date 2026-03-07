@@ -37,7 +37,7 @@ const TopBar = () => {
       <header className="h-12 bg-[#000500] border-b border-[#00FF41]/30 px-4 flex items-center justify-between font-mono text-[#00FF41]">
         <div className="text-sm tracking-[0.2em] text-[#FFD700]">PROJECT HORUS · SOVEREIGN GEOSPATIAL ENGINE</div>
         <div className="flex items-center gap-4">
-          <div className="text-xs">{live ? 'LIVE IN THE FIELD OF REEDS' : 'OFFLINE LOCK'} · BORDERS {status?.counts?.borders ?? 0}</div>
+          <div className="text-xs">{live ? 'LIVE IN THE FIELD OF REEDS' : 'OFFLINE LOCK'} · CASE {status?.activeCaseId ?? 'n/a'} · BORDERS {status?.counts?.borders ?? 0}</div>
           <button
             className="text-[#FFD700] border border-[#FFD700]/60 rounded px-2 py-1 text-xs hover:bg-[#FFD700]/10"
             onClick={() => setSettingsOpen(!settingsOpen)}
