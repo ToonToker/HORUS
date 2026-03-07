@@ -1,0 +1,6 @@
+{
+  "nodes": [
+    {"id":"lob-1","kind":"lob-liquidity","lat":40.7128,"lon":-74.0060,"confidence":0.91,"verified":true,"ts":1730490000000},
+    {"id":"lob-2","kind":"lob-liquidity","lat":51.5072,"lon":-0.1276,"confidence":0.79,"verified":true,"ts":1730493600000}
+  ]
+}
