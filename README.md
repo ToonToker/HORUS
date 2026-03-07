@@ -19,6 +19,7 @@ Open `http://localhost:3000`.
   - `data/mcp`
 
 ## New HORUS-INTELLIGENCE-ENTITY upgrades
+- **Sentinel Veto Gatekeeper:** audits incoming packets for poisoned metadata/tracking headers before ingest.
 - **MCP Anchor Bridge:** loads local MCP context snapshots (`data/mcp/lob_context.json`, `data/mcp/osint_context.json`) and emits geospatial MCP nodes.
 - **Seeker Pipes:** `POST /api/seeker/ingest` accepts autonomous node discoveries (IP/wallet/MAC footprints).
 - **Maat Filter + 58ns Veto:** validation audit rejects `ISFET` noisy/unverified/low-confidence nodes before rendering and stores them in a local high-entropy quarantine queue.
@@ -52,6 +53,7 @@ Use the ⚙ **Settings** button in the top-right to configure:
 - `POST /api/witness/annotations`
 - `POST /api/seeker/ingest`
 - `GET /api/validation/high-entropy`
+- `GET /api/intel/resource-nodes`
 - `POST /api/sigint/investigate`
 
 ## Helpers
@@ -59,6 +61,7 @@ Use the ⚙ **Settings** button in the top-right to configure:
 ./scripts/fetch-local-data.sh
 node scripts/scrape-rf-maritime.mjs
 node scripts/scrape-cyber.mjs
+node scripts/seeker-kernel.mjs
 ```
 
 

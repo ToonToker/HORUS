@@ -137,6 +137,17 @@ function initDb() {
       payload TEXT NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS intel_resource_nodes (
+      id TEXT PRIMARY KEY,
+      case_id TEXT NOT NULL,
+      node_family TEXT NOT NULL,
+      lat REAL NOT NULL,
+      lon REAL NOT NULL,
+      intensity REAL NOT NULL DEFAULT 1,
+      confidence REAL NOT NULL DEFAULT 0.5,
+      payload TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
     INSERT OR IGNORE INTO runtime_settings (id) VALUES ('global');
   `);
 
@@ -189,10 +200,54 @@ function maatValidationPipe(node: Entity): ValidationDecision {
   return { valid, reason, latencyNs };
 }
 
+class SentinelGatekeeper {
+  audit(packet: Entity): ValidationDecision & { entropy: "LOW" | "HIGH"; flags: string[] } {
+    const base = maatValidationPipe(packet);
+    const flags: string[] = [];
+    const headers = (packet.headers ?? packet.metadata?.headers ?? {}) as Record<string, any>;
+
+    const trackingHeader = Object.keys(headers).find((k) => /pixel|tracker|beacon/i.test(k));
+    if (trackingHeader) flags.push(`TRACKING_HEADER:${trackingHeader}`);
+
+    const ua = String(headers["user-agent"] ?? headers["User-Agent"] ?? packet.metadata?.userAgent ?? "");
+    if (ua && /HeadlessChrome|PhantomJS|Crawler/i.test(ua) && packet.metadata?.allowHeadless !== true) {
+      flags.push("SUSPECT_UA");
+    }
+
+    if (packet.metadata?.trackingPixel === true || packet.metadata?.poisoned === true) {
+      flags.push("POISONED_METADATA");
+    }
+
+    const entropy = flags.length > 0 || !base.valid ? "HIGH" : "LOW";
+    const valid = base.valid && entropy === "LOW";
+    return { valid, reason: valid ? "MAAT_OK" : "ISFET_VETO", latencyNs: base.latencyNs, entropy, flags };
+  }
+}
+
+const gatekeeper = new SentinelGatekeeper();
+
+function persistIntelResourceNode(nodeFamily: string, node: Entity) {
+  if (!Number.isFinite(node.lat) || !Number.isFinite(node.lon)) return;
+  db.prepare(`
+    INSERT OR REPLACE INTO intel_resource_nodes (id, case_id, node_family, lat, lon, intensity, confidence, payload)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    node.id,
+    state.activeCaseId,
+    nodeFamily,
+    Number(node.lat),
+    Number(node.lon),
+    Number(node.intensity ?? node.speed ?? node.density ?? 1),
+    Number(node.confidence ?? 0.6),
+    JSON.stringify(node),
+  );
+}
+
+
 function applyMaatFilter(nodes: Entity[]): Entity[] {
   const out: Entity[] = [];
   for (const node of nodes) {
-    const decision = maatValidationPipe(node);
+    const decision = gatekeeper.audit(node);
     if (decision.valid) {
       state.audit.accepted += 1;
       out.push({ ...node, validation: decision });
@@ -271,9 +326,12 @@ function loadSigintSuite() {
   const nameGrid = readCsv(path.join(DATA_DIRS.threats, "name_address_grid.csv"));
 
   state.rfNodes = applyMaatFilter(radio.length > 1 ? radio.slice(1).map((r, i) => ({ id: `rf-${i}`, name: r[0], country: r[1], streamUrl: r[2], lat: Number(r[3]), lon: Number(r[4]), confidence: 0.75, verified: true, ts: Date.now() - i * 120_000 })) : []);
+  state.rfNodes.forEach((n) => persistIntelResourceNode("rf", n));
   state.vessels = applyMaatFilter(vessels.length > 1 ? vessels.slice(1).map((r, i) => ({ id: `vessel-${i}`, callsign: r[0], cargo: r[1], lat: Number(r[2]), lon: Number(r[3]), heading: Number(r[4]), speed: Number(r[5]), confidence: 0.8, verified: true, ts: Date.now() - i * 60_000 })) : []);
+  state.vessels.forEach((n) => persistIntelResourceNode("maritime", n));
   state.wardriving = applyMaatFilter(wigle.length > 1 ? wigle.slice(1).map((r, i) => ({ id: `wigle-${i}`, lat: Number(r[0]), lon: Number(r[1]), density: Number(r[2]), confidence: 0.65, verified: true, ts: Date.now() - i * 300_000 })) : []);
   state.cyberThreats = applyMaatFilter(Array.isArray(cyber?.events) ? cyber.events.map((e: any) => ({ ...e, confidence: Number(e.confidence ?? 0.8), verified: true })) : []);
+  state.cyberThreats.forEach((n) => persistIntelResourceNode("cyber", n));
   state.ghostMarkers = applyMaatFilter(nameGrid.length > 1 ? nameGrid.slice(1).map((r, i) => ({ id: `ghost-${i}`, name: r[0], address: r[1], lat: Number(r[2]), lon: Number(r[3]), confidence: 0.6, verified: true })) : []);
 
   const shodan = shodanRows.length > 1 ? shodanRows.slice(1).map((r, i) => ({ id: `shodan-${i}`, ip: r[0], port: Number(r[1]), service: r[2], lat: Number(r[3]), lon: Number(r[4]) })) : [];
@@ -307,6 +365,7 @@ function loadMcpBridge() {
     verified: n.verified !== false,
     ts: Number(n.ts ?? Date.now()),
   })).filter((n) => Number.isFinite(n.lat) && Number.isFinite(n.lon)));
+  state.mcpNodes.forEach((n) => persistIntelResourceNode("mcp", n));
 }
 
 function loadAnnotations() {
@@ -523,6 +582,11 @@ async function startServer() {
 
   app.get("/api/witness/annotations", (_req, res) => res.json(state.annotations));
   app.get("/api/validation/high-entropy", (_req, res) => res.json({ activeCaseId: state.activeCaseId, nodes: state.highEntropyNodes }));
+  app.get("/api/intel/resource-nodes", (_req, res) => {
+    const rows = db.prepare("SELECT * FROM intel_resource_nodes WHERE case_id = ? ORDER BY created_at DESC LIMIT 2000").all(state.activeCaseId);
+    res.json({ activeCaseId: state.activeCaseId, nodes: rows });
+  });
+}
 
   app.post("/api/witness/annotations", (req, res) => {
     const payload = req.body as Partial<WitnessAnnotation>;
@@ -553,7 +617,6 @@ async function startServer() {
     io.emit("data:witnessAnnotations", state.annotations);
     res.json({ success: true, id, caseId: state.activeCaseId });
   });
-}
 
   app.post("/api/seeker/ingest", (req, res) => {
     const incoming = Array.isArray(req.body?.nodes) ? req.body.nodes : [];
@@ -595,6 +658,42 @@ async function startServer() {
   });
 
   io.on("connection", (socket) => {
+    socket.on("bridge:pushNodes", (payload: any) => {
+      const incoming = Array.isArray(payload?.nodes) ? payload.nodes : [];
+      const normalized = incoming.map((n: any, i: number) => ({
+        id: n.id ?? `bridge-${Date.now()}-${i}`,
+        nodeType: n.nodeType ?? "bridge-node",
+        lat: Number(n.lat),
+        lon: Number(n.lon),
+        confidence: Number(n.confidence ?? 0.6),
+        verified: n.verified !== false,
+        noisy: n.noisy === true,
+        headers: n.headers ?? {},
+        metadata: n.metadata ?? {},
+        payload: n,
+      })).filter((n: any) => Number.isFinite(n.lat) && Number.isFinite(n.lon));
+
+      const passed = applyMaatFilter(normalized);
+      const rejected = normalized.filter((n) => !passed.find((p) => p.id === n.id));
+
+      const stmt = db.prepare("INSERT OR REPLACE INTO seeker_nodes (id, case_id, node_type, lat, lon, confidence, payload) VALUES (?, ?, ?, ?, ?, ?, ?)");
+      const qstmt = db.prepare("INSERT OR REPLACE INTO high_entropy_nodes (id, case_id, source, reason, payload) VALUES (?, ?, ?, ?, ?)");
+
+      for (const n of passed) {
+        stmt.run(n.id, state.activeCaseId, n.nodeType, n.lat, n.lon, n.confidence, JSON.stringify(n.payload));
+        persistIntelResourceNode("bridge", n);
+      }
+      for (const n of rejected) {
+        const decision = gatekeeper.audit(n);
+        qstmt.run(n.id, state.activeCaseId, "bridge-push", decision.reason, JSON.stringify(n));
+      }
+
+      loadSeekerNodes();
+      loadHighEntropyNodes();
+      io.emit("data:seekerNodes", state.seekerNodes);
+      io.emit("data:highEntropyNodes", state.highEntropyNodes);
+      socket.emit("bridge:ack", { received: normalized.length, accepted: passed.length, vetoed: rejected.length });
+    });
     [
       ["data:borders", state.borders],
       ["data:conflictZones", state.conflictZones],
