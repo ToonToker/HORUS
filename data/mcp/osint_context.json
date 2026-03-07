@@ -1,0 +1,6 @@
+{
+  "nodes": [
+    {"id":"osint-1","kind":"wallet-cluster","lat":37.7749,"lon":-122.4194,"confidence":0.88,"verified":true,"ts":1730491800000},
+    {"id":"osint-2","kind":"mac-history","lat":25.2048,"lon":55.2708,"confidence":0.44,"verified":false,"ts":1730491800000}
+  ]
+}
