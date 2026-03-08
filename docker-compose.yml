@@ -1,0 +1,20 @@
+services:
+  horus:
+    build: .
+    container_name: horus-terminal
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./maps:/app/maps
+      - ./cases:/app/cases
+      - ./horus.db:/app/horus.db
+    environment:
+      - NODE_ENV=production
+    networks:
+      - horus_net
+
+networks:
+  horus_net:
+    driver: bridge
