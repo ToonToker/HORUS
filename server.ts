@@ -671,7 +671,8 @@ async function startServer() {
       return;
     }
     const n = 2 ** z;
-    const tmsY = n - 1 - y;
+    const requestUsesTms = String(req.query.tms || "").toLowerCase() === "true";
+    const tmsY = requestUsesTms ? y : n - 1 - y;
     const row = mbtilesDb.prepare("SELECT tile_data FROM tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?").get(z, x, tmsY) as { tile_data?: Buffer } | undefined;
     if (!row?.tile_data) {
       res.status(404).end();

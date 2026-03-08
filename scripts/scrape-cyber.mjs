@@ -7,19 +7,21 @@ const shodanHtmlPath = path.join(process.cwd(), 'data', 'threats', 'raw', 'shoda
 const cyberOut = path.join(process.cwd(), 'data', 'threats', 'cyber_attacks.json');
 const shodanOut = path.join(process.cwd(), 'data', 'threats', 'shodan_scrape.csv');
 
-async function parseShodanWithPlaywright() {
-  let chromium;
-  try {
-    const mod = await import('playwright');
-    chromium = mod.chromium;
-  } catch {
-    return [];
-  }
-  if (!fs.existsSync(shodanHtmlPath)) return [];
+async function getStealthChromium() {
+  const { chromium } = await import('playwright-extra');
+  const stealthPlugin = (await import('puppeteer-extra-plugin-stealth')).default;
+  chromium.use(stealthPlugin());
+  return chromium;
+}
 
+async function parseShodanWithPlaywright() {
+  if (!fs.existsSync(shodanHtmlPath)) return [];
+  const chromium = await getStealthChromium();
   const browser = await chromium.launch({ headless: true, args: ['--disable-webrtc'] });
   const context = await browser.newContext({ userAgent: 'HORUS-SHODAN-STRIP/1.0' });
-  await context.addInitScript("Object.defineProperty(window,'RTCPeerConnection',{value:undefined});");
+  const { stealth } = await import('playwright-stealth');
+  await stealth(context);
+
   const page = await context.newPage();
   await page.setContent(fs.readFileSync(shodanHtmlPath, 'utf8'));
   const rows = await page.evaluate(() => [...document.querySelectorAll('[data-ip][data-port][data-service][data-lat][data-lon]')].map((el) => [

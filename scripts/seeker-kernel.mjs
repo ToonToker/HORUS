@@ -10,31 +10,16 @@ const UA_POOL = [
 ];
 const PROXY_POOL = (process.env.HORUS_PROXY_POOL || 'socks5://127.0.0.1:9050').split(',').map((s) => s.trim()).filter(Boolean);
 
-function privacyInitScript() {
-  return `
-    Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    Object.defineProperty(navigator, 'connection', { get: () => ({ downlink: 10, effectiveType: '4g', rtt: 50 }) });
-    Object.defineProperty(window, 'RTCPeerConnection', { value: undefined });
-    const fakeVendor = 'Intel Inc.';
-    const fakeRenderer = 'Intel Iris OpenGL';
-    const getParameter = WebGLRenderingContext.prototype.getParameter;
-    WebGLRenderingContext.prototype.getParameter = function(param) {
-      if (param === 37445) return fakeVendor;
-      if (param === 37446) return fakeRenderer;
-      return getParameter.call(this, param);
-    };
-    const toDataURL = HTMLCanvasElement.prototype.toDataURL;
-    HTMLCanvasElement.prototype.toDataURL = function(...args) {
-      const ctx = this.getContext('2d');
-      if (ctx) {
-        ctx.save();
-        ctx.globalAlpha = 0.99;
-        ctx.fillRect(0, 0, 1, 1);
-        ctx.restore();
-      }
-      return toDataURL.apply(this, args);
-    };
-  `;
+async function getStealthChromium() {
+  const { chromium } = await import('playwright-extra');
+  const stealthPlugin = (await import('puppeteer-extra-plugin-stealth')).default;
+  chromium.use(stealthPlugin());
+  return chromium;
+}
+
+async function applyPlaywrightStealth(context) {
+  const { stealth } = await import('playwright-stealth');
+  await stealth(context);
 }
 
 async function parseSnapshot(chromium, targetFile, proxy, userAgent) {
@@ -44,7 +29,8 @@ async function parseSnapshot(chromium, targetFile, proxy, userAgent) {
     args: ['--disable-webrtc', '--disable-features=WebRtcHideLocalIpsWithMdns'],
   });
   const context = await browser.newContext({ userAgent, javaScriptEnabled: true });
-  await context.addInitScript(privacyInitScript());
+  await applyPlaywrightStealth(context);
+
   const page = await context.newPage();
   const html = fs.readFileSync(targetFile, 'utf8');
   await page.setContent(html, { waitUntil: 'domcontentloaded' });
@@ -69,15 +55,15 @@ async function parseSnapshot(chromium, targetFile, proxy, userAgent) {
 async function run() {
   let chromium;
   try {
-    const mod = await import('playwright');
-    chromium = mod.chromium;
-  } catch {
-    console.error('playwright not installed; falling back to local raw snapshot parsing only.');
+    chromium = await getStealthChromium();
+  } catch (error) {
+    console.error('stealth runtime unavailable:', error?.message || error);
+    process.exit(1);
   }
 
   const found = [];
   const targetFile = path.join(process.cwd(), 'data', 'threats', 'raw', 'seeker-source.html');
-  if (chromium && fs.existsSync(targetFile)) {
+  if (fs.existsSync(targetFile)) {
     for (let i = 0; i < PROXY_POOL.length; i += 1) {
       const proxy = PROXY_POOL[i] || undefined;
       const userAgent = UA_POOL[i % UA_POOL.length];

@@ -11,7 +11,7 @@ Open `http://localhost:3000`.
 
 ## Core architecture
 - Zero outbound runtime API calls (blocked in server runtime).
-- Local MBTiles-backed tile server at `/maps/tiles/{z}/{x}/{y}.png` (served from `maps/offline.mbtiles`).
+- Local MBTiles-backed tile server at `/maps/tiles/{z}/{x}/{y}.png` with XYZ→TMS inversion support (`y = (2^z - 1) - y`) and Leaflet `tms: true` compatibility.
 - Local datasets from:
   - `data/boundaries`
   - `data/conflicts`
@@ -64,6 +64,8 @@ Use the ⚙ **Settings** button in the top-right to configure:
 node scripts/scrape-rf-maritime.mjs
 node scripts/scrape-cyber.mjs
 node scripts/seeker-kernel.mjs
+python scripts/offline_mbtiles_server.py --mbtiles maps/offline.mbtiles --port 8099
+python scripts/horus_mcp_stdio.py
 ```
 
 
@@ -79,6 +81,8 @@ This keeps HORUS isolated with local mounted data/cases/tiles for Bazzell-standa
 
 
 ## MCP server modes
+- Official Python MCP stdio server: `python scripts/horus_mcp_stdio.py`
+- Exposed MCP tools: `add_node`, `add_edge`, `get_target_graph`
 - Local UNIX socket JSON-RPC: `/tmp/horus-mcp.sock`
 - HTTP JSON-RPC: `POST /api/mcp/rpc`
 - SSE notifications: `GET /api/mcp/sse`
@@ -91,3 +95,7 @@ This keeps HORUS isolated with local mounted data/cases/tiles for Bazzell-standa
 from scripts.airgap_veto_middleware import install_airgap_veto
 install_airgap_veto(allowed_proxy_hosts=['127.0.0.1'])
 ```
+
+
+## Recursive CTE graph chains
+- `get_target_graph` in `scripts/horus_mcp_stdio.py` uses a recursive SQLite CTE to traverse connected nodes up to 3 hops and returns a JSON graph payload.

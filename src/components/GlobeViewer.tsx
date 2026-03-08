@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { io } from 'socket.io-client';
+import { CircleMarker, MapContainer, Polyline, TileLayer, Tooltip, GeoJSON } from 'react-leaflet';
 import { useWorldViewStore } from '../store';
 
 type Track = {
@@ -19,33 +20,16 @@ type Track = {
   kind?: string;
 };
 
-const TILE = 256;
-const ZOOM = 2;
-const WORLD = TILE * (2 ** ZOOM);
-
-function project(lat: number, lon: number) {
-  const clamped = Math.max(-85, Math.min(85, lat));
-  const x = ((lon + 180) / 360) * WORLD;
-  const s = Math.sin((clamped * Math.PI) / 180);
-  const y = (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * WORLD;
-  return { x, y };
-}
-
-function unproject(x: number, y: number) {
-  const lon = (x / WORLD) * 360 - 180;
-  const n = Math.PI - (2 * Math.PI * y) / WORLD;
-  const lat = (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
-  return { lat, lon };
-}
+type BorderFeature = {
+  id: string;
+  geometry: any;
+  properties?: Record<string, unknown>;
+};
 
 const GlobeViewer = () => {
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const dragRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
-  const workerRef = useRef<Worker | null>(null);
   const { layers, temporalHours, setPendingWitnessPoint, setSelectedEntity } = useWorldViewStore();
 
-  const [size, setSize] = useState({ w: 1200, h: 700 });
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [borders, setBorders] = useState<BorderFeature[]>([]);
   const [conflicts, setConflicts] = useState<Track[]>([]);
   const [breaches, setBreaches] = useState<Track[]>([]);
   const [threatArcs, setThreatArcs] = useState<Track[]>([]);
@@ -53,7 +37,6 @@ const GlobeViewer = () => {
   const [vessels, setVessels] = useState<Track[]>([]);
   const [cyberThreats, setCyberThreats] = useState<Track[]>([]);
   const [wardriving, setWardriving] = useState<Track[]>([]);
-  const [signalFog, setSignalFog] = useState<Track[]>([]);
   const [resonanceLinks, setResonanceLinks] = useState<Track[]>([]);
   const [ghostMarkers, setGhostMarkers] = useState<Track[]>([]);
   const [witnessAnnotations, setWitnessAnnotations] = useState<Track[]>([]);
@@ -64,22 +47,8 @@ const GlobeViewer = () => {
   const [highEntropyNodes, setHighEntropyNodes] = useState<Track[]>([]);
 
   useEffect(() => {
-    const center = project(20, 0);
-    setOffset({ x: size.w / 2 - center.x, y: size.h / 2 - center.y });
-  }, [size.w, size.h]);
-
-  useEffect(() => {
-    if (!rootRef.current) return;
-    const ro = new ResizeObserver((entries) => {
-      const r = entries[0].contentRect;
-      setSize({ w: r.width, h: r.height });
-    });
-    ro.observe(rootRef.current);
-    return () => ro.disconnect();
-  }, []);
-
-  useEffect(() => {
     const socket = io();
+    socket.on('data:borders', setBorders);
     socket.on('data:conflictZones', setConflicts);
     socket.on('data:breaches', setBreaches);
     socket.on('data:threatArcs', setThreatArcs);
@@ -98,118 +67,86 @@ const GlobeViewer = () => {
     return () => socket.disconnect();
   }, []);
 
-  useEffect(() => {
-    workerRef.current = new Worker(new URL('../workers/signalFogWorker.ts', import.meta.url), { type: 'module' });
-    workerRef.current.onmessage = (e) => setSignalFog(e.data.fog || []);
-    return () => workerRef.current?.terminate();
-  }, []);
-
-  useEffect(() => {
-    workerRef.current?.postMessage({ points: wardriving.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lon)) });
-  }, [wardriving]);
-
   const cut = useMemo(() => Date.now() - temporalHours * 3600 * 1000, [temporalHours]);
   const recent = (arr: Track[]) => arr.filter((x) => !x.ts || x.ts >= cut);
 
-  const tiles = useMemo(() => {
-    const out: { x: number; y: number; tx: number; ty: number }[] = [];
-    const startX = Math.floor((-offset.x) / TILE) - 1;
-    const endX = Math.ceil((size.w - offset.x) / TILE) + 1;
-    const startY = Math.floor((-offset.y) / TILE) - 1;
-    const endY = Math.ceil((size.h - offset.y) / TILE) + 1;
-    const n = 2 ** ZOOM;
-    for (let tx = startX; tx <= endX; tx += 1) {
-      for (let ty = startY; ty <= endY; ty += 1) {
-        if (ty < 0 || ty >= n) continue;
-        const wrapped = ((tx % n) + n) % n;
-        out.push({ x: tx * TILE + offset.x, y: ty * TILE + offset.y, tx: wrapped, ty });
-      }
-    }
-    return out;
-  }, [offset.x, offset.y, size.h, size.w]);
-
-  const toScreen = (lat?: number, lon?: number) => {
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return { x: -9999, y: -9999 };
-    const p = project(lat as number, lon as number);
-    return { x: p.x + offset.x, y: p.y + offset.y };
-  };
-
-  const onMapClick = (clientX: number, clientY: number) => {
-    const rect = rootRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const x = clientX - rect.left - offset.x;
-    const y = clientY - rect.top - offset.y;
-    const ll = unproject(x, y);
-    setPendingWitnessPoint({ lat: ll.lat, lon: ll.lon });
-  };
-
-  const marker = (d: Track, color: string, sizePx = 8, label?: string) => {
-    const p = toScreen(d.lat, d.lon);
-    return (
-      <button
+  const mark = (arr: Track[], color: string, radius = 5, label?: (d: Track) => string) => arr
+    .filter((d) => Number.isFinite(d.lat) && Number.isFinite(d.lon))
+    .map((d) => (
+      <CircleMarker
         key={d.id}
-        className="absolute -translate-x-1/2 -translate-y-1/2"
-        style={{ left: p.x, top: p.y }}
-        onClick={(e) => { e.stopPropagation(); setSelectedEntity(d); }}
+        center={[d.lat as number, d.lon as number]}
+        radius={radius}
+        pathOptions={{ color, fillColor: color, fillOpacity: 0.8, weight: 1 }}
+        eventHandlers={{ click: () => setSelectedEntity(d) }}
       >
-        <span style={{ width: sizePx, height: sizePx, background: color }} className="block rounded-full border border-black/40" />
-        {label && <span className="text-[10px] text-[#00FF41] whitespace-nowrap block mt-0.5">{label}</span>}
-      </button>
-    );
-  };
+        {label && <Tooltip>{label(d)}</Tooltip>}
+      </CircleMarker>
+    ));
 
   return (
-    <div
-      ref={rootRef}
-      className="w-full h-full relative overflow-hidden bg-[#02110b]"
-      onMouseDown={(e) => { dragRef.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y }; }}
-      onMouseMove={(e) => {
-        if (!dragRef.current) return;
-        setOffset({ x: dragRef.current.ox + (e.clientX - dragRef.current.x), y: dragRef.current.oy + (e.clientY - dragRef.current.y) });
-      }}
-      onMouseUp={() => { dragRef.current = null; }}
-      onMouseLeave={() => { dragRef.current = null; }}
-      onClick={(e) => onMapClick(e.clientX, e.clientY)}
-    >
-      <div className="absolute inset-0 pointer-events-none opacity-70" style={{ backgroundImage: 'linear-gradient(#0f5d3a55 1px, transparent 1px), linear-gradient(90deg, #0f5d3a55 1px, transparent 1px)', backgroundSize: '64px 64px' }} />
-      {tiles.map((t) => (
-        <img
-          key={`${t.tx}-${t.ty}-${t.x}`}
-          src={`/maps/tiles/${ZOOM}/${t.tx}/${t.ty}.png`}
-          className="absolute"
-          style={{ left: t.x, top: t.y, width: TILE, height: TILE }}
-          draggable={false}
+    <div className="w-full h-full relative overflow-hidden bg-[#02110b]">
+      <MapContainer
+        center={[20, 0]}
+        zoom={2}
+        minZoom={2}
+        maxZoom={6}
+        style={{ height: '100%', width: '100%', background: '#02110b' }}
+        whenReady={() => undefined}
+        eventHandlers={{
+          click: (e) => setPendingWitnessPoint({ lat: e.latlng.lat, lon: e.latlng.lng }),
+        }}
+      >
+        <TileLayer
+          url="/maps/tiles/{z}/{x}/{y}.png?tms=true"
+          tms
+          noWrap
+          attribution="HORUS Offline MBTiles"
         />
-      ))}
 
-      <svg className="absolute inset-0 pointer-events-none" width={size.w} height={size.h}>
-        {layers.threatMap && threatArcs.map((a) => {
-          const f = toScreen(a.from?.lat, a.from?.lon);
-          const t = toScreen(a.to?.lat, a.to?.lon);
-          return <line key={a.id} x1={f.x} y1={f.y} x2={t.x} y2={t.y} stroke="#FF3131" strokeWidth="2" opacity="0.9" />;
-        })}
-        {layers.resonanceLinks && resonanceLinks.map((a) => {
-          const f = toScreen(a.from?.lat, a.from?.lon);
-          const t = toScreen(a.to?.lat, a.to?.lon);
-          return <line key={a.id} x1={f.x} y1={f.y} x2={t.x} y2={t.y} stroke="#FFD700" strokeWidth="1.5" opacity="0.9" />;
-        })}
-      </svg>
+        {layers.borders && (
+          <GeoJSON
+            data={{ type: 'FeatureCollection', features: borders.map((f) => ({ type: 'Feature', geometry: f.geometry, properties: f.properties ?? {} })) }}
+            style={{ color: '#00FF41', weight: 1, opacity: 0.6, fillOpacity: 0 }}
+          />
+        )}
 
-      {layers.conflictZones && recent(conflicts).map((d) => marker(d, '#FF3131', 7 + ((d.intensity ?? 1) * 2)))}
-      {layers.breachLocator && breaches.map((d) => marker(d, '#FFD700', 8))}
-      {layers.rfNodes && recent(rfNodes).map((d) => marker(d, '#00FFFF', 6, d.name))}
-      {layers.maritime && recent(vessels).map((d) => marker(d, '#00bcd4', 7, `${d.callsign ?? 'VSL'} ${Math.round(d.speed ?? 0)}kt`))}
-      {layers.cyberThreats && recent(cyberThreats).map((d) => marker(d, '#FF3131', 5 + (d.intensity ?? 1)))}
-      {layers.signalFog && signalFog.map((d) => marker(d, '#00FF41', 4 + Math.min(10, Math.round((d.density ?? 1) / 2))))}
-      {layers.ghostMarkers && ghostMarkers.map((d) => marker(d, '#dddddd', 6, d.name))}
-      {layers.witnessAnnotations && witnessAnnotations.map((d) => marker(d, '#00FF41', 8, d.status))}
-      {layers.seekerNodes && seekerNodes.map((d) => marker(d, '#FFD700', 7, d.nodeType ?? 'SEEKER'))}
-      {layers.mcpNodes && mcpNodes.map((d) => marker(d, '#ff8a00', 6, d.kind ?? 'MCP'))}
-      {layers.liquidityHeatmap && recent(liquidityHeatmap).map((d) => marker(d, '#ff4d00', 5 + Math.min(12, Number(d.intensity ?? 1))))}
-      {layers.seismicWindows && recent(seismicWindows).map((d) => marker(d, '#00e5ff', 5 + Math.min(10, Number(d.intensity ?? 1))))}
-      {layers.highEntropyNodes && highEntropyNodes.map((d) => marker(d, '#ff00aa', 7, 'HIGH-ENTROPY'))}
+        {layers.threatMap && threatArcs.map((a) => (
+          (a.from && a.to) ? (
+            <Polyline
+              key={a.id}
+              positions={[[a.from.lat, a.from.lon], [a.to.lat, a.to.lon]]}
+              pathOptions={{ color: '#FF3131', weight: 2, opacity: 0.9 }}
+            />
+          ) : null
+        ))}
 
-      <div className="absolute left-3 bottom-3 text-xs text-emerald-300 bg-black/70 border border-emerald-600/50 p-2 rounded">HORUS MAP ONLINE · Local tile core active (drag to pan).</div>
+        {layers.resonanceLinks && resonanceLinks.map((a) => (
+          (a.from && a.to) ? (
+            <Polyline
+              key={a.id}
+              positions={[[a.from.lat, a.from.lon], [a.to.lat, a.to.lon]]}
+              pathOptions={{ color: '#FFD700', weight: 1.5, opacity: 0.9 }}
+            />
+          ) : null
+        ))}
+
+        {layers.conflictZones && mark(recent(conflicts), '#FF3131', 6)}
+        {layers.breachLocator && mark(breaches, '#FFD700', 6)}
+        {layers.rfNodes && mark(recent(rfNodes), '#00FFFF', 5, (d) => d.name ?? 'RF')}
+        {layers.maritime && mark(recent(vessels), '#00bcd4', 5, (d) => `${d.callsign ?? 'VSL'} ${Math.round(d.speed ?? 0)}kt`)}
+        {layers.cyberThreats && mark(recent(cyberThreats), '#FF3131', 5)}
+        {layers.signalFog && mark(wardriving, '#00FF41', 4)}
+        {layers.ghostMarkers && mark(ghostMarkers, '#dddddd', 5, (d) => d.name ?? 'Ghost')}
+        {layers.witnessAnnotations && mark(witnessAnnotations, '#00FF41', 6, (d) => d.status ?? 'Witness')}
+        {layers.seekerNodes && mark(seekerNodes, '#FFD700', 6, (d) => d.nodeType ?? 'SEEKER')}
+        {layers.mcpNodes && mark(mcpNodes, '#ff8a00', 5, (d) => d.kind ?? 'MCP')}
+        {layers.liquidityHeatmap && mark(recent(liquidityHeatmap), '#ff4d00', 5)}
+        {layers.seismicWindows && mark(recent(seismicWindows), '#00e5ff', 5)}
+        {layers.highEntropyNodes && mark(highEntropyNodes, '#ff00aa', 6, () => 'HIGH-ENTROPY')}
+      </MapContainer>
+
+      <div className="absolute left-3 bottom-3 z-[1000] text-xs text-emerald-300 bg-black/70 border border-emerald-600/50 p-2 rounded">HORUS MAP ONLINE · Local MBTiles core active.</div>
     </div>
   );
 };
