@@ -1,0 +1,13 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"name": "Sample Sovereign Zone", "level": 0, "status_enum": "OSINT_TARGET"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-80,20],[-60,20],[-60,40],[-80,40],[-80,20]]]
+      }
+    }
+  ]
+}
