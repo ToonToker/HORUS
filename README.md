@@ -11,7 +11,7 @@ Open `http://localhost:3000`.
 
 ## Core architecture
 - Zero outbound runtime API calls (blocked in server runtime).
-- Local MBTiles-backed tile server at `/maps/tiles/{z}/{x}/{y}.png` with XYZ→TMS inversion support (`y = (2^z - 1) - y`) and Cesium `reverseY` compatibility.
+- Local MBTiles-backed tile server at `http://localhost:8000/tiles/{z}/{x}/{y}.png` (Python server) with XYZ→TMS inversion support (`y = (2^z - 1) - y`) and Cesium `reverseY` compatibility.
 - Local datasets from:
   - `data/boundaries`
   - `data/conflicts`
@@ -63,7 +63,7 @@ Use the ⚙ **Settings** button in the top-right to configure:
 ./scripts/fetch-local-data.sh
 node scripts/scrape-rf-maritime.mjs
 node scripts/scrape-cyber.mjs
-python scripts/seeker_kernel.py
+python scripts/seeker_kernel.py  # TOR SOCKS5 + NEWNYM identity rotation
 python scripts/offline_mbtiles_server.py --mbtiles maps/offline.mbtiles --port 8099
 python scripts/horus_mcp_stdio.py
 ```

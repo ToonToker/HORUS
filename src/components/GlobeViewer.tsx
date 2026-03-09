@@ -20,15 +20,10 @@ type Track = {
   lon?: number;
   from?: { lat: number; lon: number };
   to?: { lat: number; lon: number };
-  intensity?: number;
   ts?: number;
-  speed?: number;
-  callsign?: string;
-  name?: string;
-  status?: string;
-  nodeType?: string;
-  kind?: string;
 };
+
+const LOCAL_TILE_URL = 'http://localhost:8000/tiles/{z}/{x}/{reverseY}.png';
 
 const GlobeViewer = () => {
   const { layers, temporalHours, setPendingWitnessPoint, setSelectedEntity } = useWorldViewStore();
@@ -45,18 +40,19 @@ const GlobeViewer = () => {
       timeline: false,
       geocoder: false,
       baseLayerPicker: false,
+      baseLayer: false,
       homeButton: false,
       sceneModePicker: false,
       navigationHelpButton: false,
       fullscreenButton: false,
       infoBox: false,
       selectionIndicator: false,
+      requestRenderMode: true,
     });
-
 
     viewer.imageryLayers.removeAll();
     viewer.imageryLayers.addImageryProvider(new UrlTemplateImageryProvider({
-      url: '/maps/tiles/{z}/{x}/{reverseY}.png?tms=true',
+      url: LOCAL_TILE_URL,
       minimumLevel: 0,
       maximumLevel: 6,
     }));
@@ -96,21 +92,10 @@ const GlobeViewer = () => {
     const socket = io();
     const bind = (event: string) => socket.on(event, (data: Track[]) => setDatasets((prev) => ({ ...prev, [event]: data ?? [] })));
     [
-      'data:conflictZones',
-      'data:breaches',
-      'data:threatArcs',
-      'data:rfNodes',
-      'data:vessels',
-      'data:cyberThreats',
-      'data:wardriving',
-      'data:resonanceLinks',
-      'data:ghostMarkers',
-      'data:witnessAnnotations',
-      'data:seekerNodes',
-      'data:mcpNodes',
-      'data:liquidityHeatmap',
-      'data:seismicWindows',
-      'data:highEntropyNodes',
+      'data:conflictZones', 'data:breaches', 'data:threatArcs', 'data:rfNodes', 'data:vessels',
+      'data:cyberThreats', 'data:wardriving', 'data:resonanceLinks', 'data:ghostMarkers',
+      'data:witnessAnnotations', 'data:seekerNodes', 'data:mcpNodes', 'data:liquidityHeatmap',
+      'data:seismicWindows', 'data:highEntropyNodes',
     ].forEach(bind);
     return () => socket.disconnect();
   }, []);
@@ -128,13 +113,7 @@ const GlobeViewer = () => {
         viewer.entities.add({
           id: d.id,
           position: Cartesian3.fromDegrees(d.lon as number, d.lat as number, 15000),
-          point: {
-            color,
-            pixelSize,
-            outlineColor: Color.BLACK,
-            outlineWidth: 1,
-            heightReference: HeightReference.NONE,
-          },
+          point: { color, pixelSize, outlineColor: Color.BLACK, outlineWidth: 1, heightReference: HeightReference.NONE },
           properties: { ...d, kind, lat: d.lat, lon: d.lon },
         });
       });
@@ -179,7 +158,7 @@ const GlobeViewer = () => {
   return (
     <div className="w-full h-full relative overflow-hidden bg-[#02110b]">
       <div ref={containerRef} className="w-full h-full" />
-      <div className="absolute left-3 bottom-3 z-[1000] text-xs text-emerald-300 bg-black/70 border border-emerald-600/50 p-2 rounded">HORUS SIS ONLINE · 3D Causality Canvas (local-only).</div>
+      <div className="absolute left-3 bottom-3 z-[1000] text-xs text-emerald-300 bg-black/70 border border-emerald-600/50 p-2 rounded">HORUS SIS ONLINE · Cesium offline canvas (localhost tile server only).</div>
     </div>
   );
 };
