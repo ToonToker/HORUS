@@ -16,6 +16,14 @@ type SovereignSettings = {
   };
 };
 
+export type LayerKey = keyof WorldViewState['layers'];
+
+export type LayerSetting = {
+  targetDorks: string;
+  scraperDepth: number;
+  dbPath: string;
+};
+
 interface WorldViewState {
   layers: {
     borders: boolean;
@@ -44,7 +52,9 @@ interface WorldViewState {
   temporalHours: number;
   settingsOpen: boolean;
   settings: SovereignSettings;
-  toggleLayer: (layer: keyof WorldViewState['layers']) => void;
+  layerSettingsModal: LayerKey | null;
+  layerSettings: Record<string, LayerSetting>;
+  toggleLayer: (layer: LayerKey) => void;
   setSelectedEntity: (entity: any | null) => void;
   setPendingWitnessPoint: (point: { lat: number; lon: number } | null) => void;
   setTemporalHours: (hours: number) => void;
@@ -52,6 +62,8 @@ interface WorldViewState {
   patchSettings: (patch: Partial<SovereignSettings>) => void;
   patchDataPaths: (patch: Partial<SovereignSettings['dataPaths']>) => void;
   patchSourceUrls: (patch: Partial<SovereignSettings['sourceUrls']>) => void;
+  setLayerSettingsModal: (layer: LayerKey | null) => void;
+  patchLayerSetting: (layer: LayerKey, patch: Partial<LayerSetting>) => void;
 }
 
 const defaultSettings: SovereignSettings = {
@@ -66,6 +78,12 @@ const defaultSettings: SovereignSettings = {
     radio: 'archive://radio/raw',
     ais: 'archive://ais/raw',
   },
+};
+
+const defaultLayerSetting: LayerSetting = {
+  targetDorks: '',
+  scraperDepth: 2,
+  dbPath: 'horus.db',
 };
 
 export const useWorldViewStore = create<WorldViewState>((set) => ({
@@ -96,6 +114,13 @@ export const useWorldViewStore = create<WorldViewState>((set) => ({
   temporalHours: 24,
   settingsOpen: false,
   settings: defaultSettings,
+  layerSettingsModal: null,
+  layerSettings: {
+    maritime: { ...defaultLayerSetting, targetDorks: 'ais cargo tanker' },
+    cyberThreats: { ...defaultLayerSetting, targetDorks: 'shodan net:10.0.0.0/8', dbPath: 'data/threats/shodan_scrape.csv' },
+    seekerNodes: { ...defaultLayerSetting, targetDorks: 'wallet pivots', dbPath: 'cases/default-case' },
+    liquidityHeatmap: { ...defaultLayerSetting, targetDorks: 'liquidity clusters', dbPath: 'data/mcp/lob_context.json' },
+  },
   toggleLayer: (layer) => set((state) => ({ layers: { ...state.layers, [layer]: !state.layers[layer] } })),
   setSelectedEntity: (selectedEntity) => set({ selectedEntity }),
   setPendingWitnessPoint: (pendingWitnessPoint) => set({ pendingWitnessPoint }),
@@ -104,4 +129,11 @@ export const useWorldViewStore = create<WorldViewState>((set) => ({
   patchSettings: (patch) => set((state) => ({ settings: { ...state.settings, ...patch } })),
   patchDataPaths: (patch) => set((state) => ({ settings: { ...state.settings, dataPaths: { ...state.settings.dataPaths, ...patch } } })),
   patchSourceUrls: (patch) => set((state) => ({ settings: { ...state.settings, sourceUrls: { ...state.settings.sourceUrls, ...patch } } })),
+  setLayerSettingsModal: (layerSettingsModal) => set({ layerSettingsModal }),
+  patchLayerSetting: (layer, patch) => set((state) => ({
+    layerSettings: {
+      ...state.layerSettings,
+      [layer]: { ...(state.layerSettings[layer] ?? defaultLayerSetting), ...patch },
+    },
+  })),
 }));
