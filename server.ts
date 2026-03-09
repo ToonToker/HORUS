@@ -511,6 +511,32 @@ function scanLocalData() {
   state.lastScan = Date.now();
 }
 
+
+function persistLayerConfig(layer: string, config: Record<string, any>, source = "ui") {
+  const file = path.join(DATA_DIRS.mcp, "layer_config.json");
+  let current: Record<string, any> = {};
+  try { current = JSON.parse(fs.readFileSync(file, "utf8")); } catch {}
+  current[layer] = { ...(current[layer] ?? {}), ...config, updatedAt: Date.now(), source };
+  fs.mkdirSync(DATA_DIRS.mcp, { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(current, null, 2));
+
+  if (typeof config.scrapingFrequencySec === "number") {
+    db.prepare("UPDATE runtime_settings SET scrape_frequency_sec = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 'global'").run(Math.max(5, Math.floor(config.scrapingFrequencySec)));
+  }
+  if (typeof config.torEnabled === "boolean") {
+    db.prepare("UPDATE runtime_settings SET tor_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 'global'").run(config.torEnabled ? 1 : 0);
+  }
+  if (typeof config.sourceUrl === "string") {
+    if (layer === "maritime") {
+      db.prepare("UPDATE runtime_settings SET ais_source = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 'global'").run(config.sourceUrl);
+    }
+    if (layer === "rfNodes") {
+      db.prepare("UPDATE runtime_settings SET radio_source = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 'global'").run(config.sourceUrl);
+    }
+  }
+  return current[layer];
+}
+
 function mcpRpcHandle(method: string, params: any) {
   switch (method) {
     case "add_intel_node": {
@@ -539,6 +565,13 @@ function mcpRpcHandle(method: string, params: any) {
       const id = `edge-${sourceNodeId}-${targetNodeId}-${Date.now()}`;
       insertGraphEdge({ id, sourceNodeId, targetNodeId, relationshipType, weight: Number(params?.weight ?? 1), properties: params?.properties ?? {} });
       return { id, linked: true, sourceNodeId, targetNodeId, relationshipType };
+    }
+    case "config_update": {
+      const layer = String(params?.layer || "unknown");
+      const config = typeof params?.config === "object" && params?.config ? params.config : {};
+      const source = String(params?.source || "unknown");
+      const saved = persistLayerConfig(layer, config, source);
+      return { ok: true, layer, config: saved };
     }
     case "mcp.getContext":
       return { mcpNodes: state.mcpNodes, liquidityHeatmap: state.liquidityHeatmap, seismicWindows: state.seismicWindows };

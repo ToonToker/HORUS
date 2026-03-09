@@ -1,20 +1,21 @@
-import React, { useEffect, useState } from 'react';
-import { LayerKey, useWorldViewStore, WitnessStatus } from '../store';
-import LayerControlRow from './layers/LayerControlRow';
+import React, { useEffect, useMemo, useState } from 'react';
+import { LayerKey, StreamKey, useWorldViewStore, WitnessStatus } from '../store';
+import { LayerItem } from './LayerItem';
+import SettingsModal from './SettingsModal';
 
-type LayerControl = { key: LayerKey; label: string; group: string; hasGear?: boolean };
+type LayerControl = { key: LayerKey; label: string; hasGear?: boolean; stream?: StreamKey };
 
 const LAYER_CONTROLS: LayerControl[] = [
-  { key: 'cyberThreats', label: 'Shodan', group: 'SIGINT', hasGear: true },
-  { key: 'liquidityHeatmap', label: 'Liquidity', group: 'Economics', hasGear: true },
-  { key: 'seekerNodes', label: 'OSINT', group: 'OSINT', hasGear: true },
-  { key: 'maritime', label: 'AIS/ADSB', group: 'Transport', hasGear: true },
-  { key: 'threatMap', label: 'Threat Arcs', group: 'Core' },
-  { key: 'resonanceLinks', label: 'Resonance Links', group: 'Core' },
-  { key: 'witnessAnnotations', label: 'Witness Notes', group: 'Core' },
-  { key: 'mcpNodes', label: 'MCP Nodes', group: 'Core' },
-  { key: 'highEntropyNodes', label: 'High Entropy', group: 'Core' },
-  { key: 'borders', label: 'Borders', group: 'Base' },
+  { key: 'cyberThreats', label: 'Shodan', hasGear: true, stream: 'data:cyberThreats' },
+  { key: 'liquidityHeatmap', label: 'Liquidity', hasGear: true, stream: 'data:liquidityHeatmap' },
+  { key: 'seekerNodes', label: 'OSINT', hasGear: true, stream: 'data:seekerNodes' },
+  { key: 'maritime', label: 'AIS/ADSB', hasGear: true, stream: 'data:vessels' },
+  { key: 'threatMap', label: 'Threat Arcs', stream: 'data:threatArcs' },
+  { key: 'resonanceLinks', label: 'Resonance Links', stream: 'data:resonanceLinks' },
+  { key: 'witnessAnnotations', label: 'Witness Notes', stream: 'data:witnessAnnotations' },
+  { key: 'mcpNodes', label: 'MCP Nodes', stream: 'data:mcpNodes' },
+  { key: 'highEntropyNodes', label: 'High Entropy', stream: 'data:highEntropyNodes' },
+  { key: 'borders', label: 'Borders' },
 ];
 
 const Sidebar = () => {
@@ -28,6 +29,7 @@ const Sidebar = () => {
     setLayerSettingsModal,
     patchLayerSetting,
     streamIngressLog,
+    synapticFeed,
   } = useWorldViewStore();
   const [noteMarkdown, setNoteMarkdown] = useState('');
   const [status, setStatus] = useState<WitnessStatus>('NEUTRAL');
@@ -49,16 +51,8 @@ const Sidebar = () => {
   const saveWitness = async () => {
     if (!pendingWitnessPoint) return;
     await fetch('/api/witness/annotations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        lat: pendingWitnessPoint.lat,
-        lon: pendingWitnessPoint.lon,
-        noteMarkdown,
-        status,
-        akhStatus,
-        metadata: { source: 'Sovereign Witness Sidebar' },
-      }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat: pendingWitnessPoint.lat, lon: pendingWitnessPoint.lon, noteMarkdown, status, akhStatus, metadata: { source: 'Sovereign Witness Sidebar' } }),
     });
     setNoteMarkdown('');
   };
@@ -67,9 +61,7 @@ const Sidebar = () => {
     const source = selectedEntity && Number.isFinite(selectedEntity.lat) ? { lat: selectedEntity.lat, lon: selectedEntity.lon } : pendingWitnessPoint;
     if (!source) return;
     const res = await fetch('/api/sigint/investigate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(source),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(source),
     });
     const json = await res.json();
     setInvestigationSummary(`Owners ${json.owners ?? 0} · Associates ${json.associates ?? 0} · Resonance ${json.resonancePoints ?? 0} · Case ${json.caseId ?? 'n/a'}`);
@@ -78,43 +70,56 @@ const Sidebar = () => {
   const ingestSeekerNode = async () => {
     if (!pendingWitnessPoint) return;
     await fetch('/api/seeker/ingest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        nodes: [{
-          nodeType: 'wallet-footprint',
-          lat: pendingWitnessPoint.lat,
-          lon: pendingWitnessPoint.lon,
-          confidence: 0.82,
-          verified: true,
-          noisy: false,
-          wallet: '0xAkhNode',
-        }],
-      }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodes: [{ nodeType: 'wallet-footprint', lat: pendingWitnessPoint.lat, lon: pendingWitnessPoint.lon, confidence: 0.82, verified: true, noisy: false, wallet: '0xAkhNode' }] }),
     });
   };
 
   const createCase = async () => {
     if (!newCaseTitle.trim()) return;
-    await fetch('/api/cases', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: newCaseTitle }),
-    });
+    await fetch('/api/cases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: newCaseTitle }) });
     setNewCaseTitle('');
     await refreshCases();
   };
 
   const activateCase = async (id: string) => {
-    await fetch('/api/cases/activate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    });
+    await fetch('/api/cases/activate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
     await refreshCases();
   };
 
   const modalSettings = layerSettingsModal ? layerSettings[layerSettingsModal] : null;
+
+  const layerModels = useMemo(() => LAYER_CONTROLS.map((layer) => {
+    const count = layer.stream ? (synapticFeed[layer.stream]?.length ?? 0) : 0;
+    const active = layers[layer.key];
+    return {
+      id: layer.key,
+      name: layer.label,
+      active,
+      status: active ? (count > 0 ? 'LIVE' : 'IDLE') : 'OFFLINE' as const,
+      hasGear: layer.hasGear,
+    };
+  }), [layers, synapticFeed]);
+
+  const saveLayerSettings = async (patch: any) => {
+    if (!layerSettingsModal) return;
+    patchLayerSetting(layerSettingsModal, patch);
+    await fetch('/api/mcp/rpc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: Date.now(),
+        method: 'config_update',
+        params: {
+          layer: layerSettingsModal,
+          config: patch,
+          source: 'SIS-LayerSettings-Modal',
+        },
+      }),
+    });
+    setLayerSettingsModal(null);
+  };
 
   return (
     <aside className="w-84 h-full bg-[#000500] text-[#00FF41] border-r border-[#00FF41]/30 p-4 overflow-y-auto font-mono">
@@ -137,15 +142,12 @@ const Sidebar = () => {
       </div>
 
       <div className="space-y-2 text-xs">
-        {LAYER_CONTROLS.map((layer) => (
-          <LayerControlRow
-            key={layer.key}
-            layerKey={layer.key}
-            label={layer.label}
-            checked={layers[layer.key]}
-            hasGear={layer.hasGear}
-            onToggle={() => toggleLayer(layer.key)}
-            onOpenSettings={() => setLayerSettingsModal(layer.key)}
+        {layerModels.map((layer) => (
+          <LayerItem
+            key={layer.id}
+            layer={layer}
+            onToggle={(id) => toggleLayer(id)}
+            onOpenSettings={(id) => setLayerSettingsModal(id)}
           />
         ))}
       </div>
@@ -166,30 +168,18 @@ const Sidebar = () => {
         <button className="w-full mt-2 border border-[#00FF41] text-[#00FF41] py-1" onClick={ingestSeekerNode}>Inject Seeker Node</button>
         {investigationSummary && <div className="mt-2 text-[11px] text-[#FFD700]">{investigationSummary}</div>}
       </div>
+
       <div className="mt-4 border border-[#00FF41]/30 rounded p-2 text-[10px] max-h-28 overflow-auto">
         <div className="text-[#FFD700] mb-1">Synaptic Event Stream</div>
         {streamIngressLog.length === 0 ? <div className="opacity-60">Awaiting ingress…</div> : streamIngressLog.slice(0, 8).map((line) => <div key={line}>{line}</div>)}
       </div>
 
-      {layerSettingsModal && modalSettings && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-start justify-center pt-20">
-          <div className="w-[560px] max-w-[95vw] bg-[#000500] border border-[#FFD700]/40 rounded p-4 text-[#00FF41] font-mono text-xs">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-[#FFD700] tracking-[0.2em]">{layerSettingsModal} SETTINGS</h3>
-              <button className="border border-[#00FF41]/30 px-2 py-1" onClick={() => setLayerSettingsModal(null)}>Close</button>
-            </div>
-            <label className="block mb-2">Target Dorks
-              <input className="w-full bg-black border border-[#00FF41]/30 p-1 mt-1" value={modalSettings.targetDorks} onChange={(e) => patchLayerSetting(layerSettingsModal, { targetDorks: e.target.value })} />
-            </label>
-            <label className="block mb-2">Scraper Depth: {modalSettings.scraperDepth}
-              <input type="range" min={1} max={10} className="w-full" value={modalSettings.scraperDepth} onChange={(e) => patchLayerSetting(layerSettingsModal, { scraperDepth: Number(e.target.value) })} />
-            </label>
-            <label className="block">DB Path
-              <input className="w-full bg-black border border-[#00FF41]/30 p-1 mt-1" value={modalSettings.dbPath} onChange={(e) => patchLayerSetting(layerSettingsModal, { dbPath: e.target.value })} />
-            </label>
-          </div>
-        </div>
-      )}
+      <SettingsModal
+        layerId={layerSettingsModal}
+        settings={modalSettings ?? null}
+        onClose={() => setLayerSettingsModal(null)}
+        onSave={saveLayerSettings}
+      />
     </aside>
   );
 };
