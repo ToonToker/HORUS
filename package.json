@@ -21,10 +21,15 @@
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
+    "leaflet": "^1.9.4",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "playwright-extra": "^4.3.6",
+    "playwright-stealth": "^0.0.1",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-leaflet": "^5.0.0",
     "resium": "^1.19.4",
     "satellite.js": "^6.0.2",
     "socket.io": "^4.8.3",
@@ -43,5 +48,8 @@
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
     "vite-plugin-cesium": "^1.2.23"
+  },
+  "overrides": {
+    "dompurify": "^3.3.1"
   }
 }
