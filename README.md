@@ -19,6 +19,9 @@ Open `http://localhost:3000`.
   - `data/mcp`
 
 ## New HORUS-INTELLIGENCE-ENTITY upgrades
+- **Synaptic Filter (Pydantic):** scraper outputs are schema-validated before DB write; malformed/poisoned/noisy payloads are vetoed and logged to `data/threats/synaptic_anomalies.log`.
+- **Entity Resolution UPSERT:** validated nodes are deduplicated into `synaptic_nodes` by `external_identifier`; causal discovery edges are inserted into `synaptic_edges`.
+- **Zustand Synaptic State:** frontend streams are centralized in a single store (`synapticFeed` + ingress log), with differential Cesium entity reconciliation to avoid full-globe rerenders.
 - **Sentinel Veto Gatekeeper:** audits incoming packets for poisoned metadata/tracking headers before ingest.
 - **MCP Anchor Bridge:** loads local MCP context snapshots (`data/mcp/lob_context.json`, `data/mcp/osint_context.json`) and emits geospatial MCP nodes.
 - **Seeker Pipes:** `POST /api/seeker/ingest` accepts autonomous node discoveries (IP/wallet/MAC footprints).
@@ -102,6 +105,7 @@ install_airgap_veto(allowed_proxy_hosts=['127.0.0.1'])
 
 
 ## Frontend Modularization
+- `src/components/SynapticStream.tsx`: centralized WebSocket ingest into Zustand global store (no prop drilling).
 - `src/components/WorldviewCanvas.tsx`: dedicated 3D SIS canvas wrapper.
 - `src/components/OSINTDash.tsx`: dedicated intelligence sidebar wrapper.
 - Layer rows are isolated in `src/components/layers/LayerControlRow.tsx` with per-layer settings gear controls.

@@ -27,6 +27,7 @@ const Sidebar = () => {
     layerSettingsModal,
     setLayerSettingsModal,
     patchLayerSetting,
+    streamIngressLog,
   } = useWorldViewStore();
   const [noteMarkdown, setNoteMarkdown] = useState('');
   const [status, setStatus] = useState<WitnessStatus>('NEUTRAL');
@@ -164,6 +165,10 @@ const Sidebar = () => {
         <button className="w-full mt-2 border border-[#FFD700] text-[#FFD700] py-1 font-bold" onClick={runDeepScrape}>OSINT-SCRAPE THIS NODE</button>
         <button className="w-full mt-2 border border-[#00FF41] text-[#00FF41] py-1" onClick={ingestSeekerNode}>Inject Seeker Node</button>
         {investigationSummary && <div className="mt-2 text-[11px] text-[#FFD700]">{investigationSummary}</div>}
+      </div>
+      <div className="mt-4 border border-[#00FF41]/30 rounded p-2 text-[10px] max-h-28 overflow-auto">
+        <div className="text-[#FFD700] mb-1">Synaptic Event Stream</div>
+        {streamIngressLog.length === 0 ? <div className="opacity-60">Awaiting ingress…</div> : streamIngressLog.slice(0, 8).map((line) => <div key={line}>{line}</div>)}
       </div>
 
       {layerSettingsModal && modalSettings && (

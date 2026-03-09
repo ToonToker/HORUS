@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { io } from 'socket.io-client';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
   ArcType,
   Cartesian3,
   Color,
+  Entity,
   HeightReference,
   Ion,
   Math as CesiumMath,
@@ -12,24 +12,33 @@ import {
   UrlTemplateImageryProvider,
   Viewer,
 } from 'cesium';
-import { useWorldViewStore } from '../store';
-
-type Track = {
-  id: string;
-  lat?: number;
-  lon?: number;
-  from?: { lat: number; lon: number };
-  to?: { lat: number; lon: number };
-  ts?: number;
-};
+import { SynapticTrack, useWorldViewStore } from '../store';
 
 const LOCAL_TILE_URL = 'http://localhost:8000/tiles/{z}/{x}/{reverseY}.png';
 
+type PointLayerSpec = {
+  stream: keyof ReturnType<typeof useWorldViewStore.getState>['synapticFeed'];
+  enabled: boolean;
+  color: Color;
+  pixelSize: number;
+  kind: string;
+  temporal?: boolean;
+};
+
+type EdgeLayerSpec = {
+  stream: keyof ReturnType<typeof useWorldViewStore.getState>['synapticFeed'];
+  enabled: boolean;
+  color: Color;
+};
+
 const GlobeViewer = () => {
-  const { layers, temporalHours, setPendingWitnessPoint, setSelectedEntity } = useWorldViewStore();
+  const { layers, temporalHours, synapticFeed, setPendingWitnessPoint, setSelectedEntity } = useWorldViewStore();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<Viewer | null>(null);
-  const [datasets, setDatasets] = useState<Record<string, Track[]>>({});
+  const streamEntitiesRef = useRef<Map<string, Set<string>>>(new Map());
+
+  const cut = useMemo(() => Date.now() - temporalHours * 3600 * 1000, [temporalHours]);
+  const recent = (arr: SynapticTrack[]) => arr.filter((x) => !x.ts || x.ts >= cut);
 
   useEffect(() => {
     Ion.defaultAccessToken = '';
@@ -85,80 +94,129 @@ const GlobeViewer = () => {
       handler.destroy();
       viewer.destroy();
       viewerRef.current = null;
+      streamEntitiesRef.current.clear();
     };
   }, [setPendingWitnessPoint, setSelectedEntity]);
-
-  useEffect(() => {
-    const socket = io();
-    const bind = (event: string) => socket.on(event, (data: Track[]) => setDatasets((prev) => ({ ...prev, [event]: data ?? [] })));
-    [
-      'data:conflictZones', 'data:breaches', 'data:threatArcs', 'data:rfNodes', 'data:vessels',
-      'data:cyberThreats', 'data:wardriving', 'data:resonanceLinks', 'data:ghostMarkers',
-      'data:witnessAnnotations', 'data:seekerNodes', 'data:mcpNodes', 'data:liquidityHeatmap',
-      'data:seismicWindows', 'data:highEntropyNodes',
-    ].forEach(bind);
-    return () => socket.disconnect();
-  }, []);
-
-  const cut = useMemo(() => Date.now() - temporalHours * 3600 * 1000, [temporalHours]);
-  const recent = (arr: Track[]) => arr.filter((x) => !x.ts || x.ts >= cut);
 
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!viewer) return;
 
-    viewer.entities.removeAll();
-    const addPoints = (arr: Track[], color: Color, pixelSize: number, kind: string) => {
-      arr.filter((d) => Number.isFinite(d.lat) && Number.isFinite(d.lon)).forEach((d) => {
-        viewer.entities.add({
-          id: d.id,
-          position: Cartesian3.fromDegrees(d.lon as number, d.lat as number, 15000),
-          point: { color, pixelSize, outlineColor: Color.BLACK, outlineWidth: 1, heightReference: HeightReference.NONE },
-          properties: { ...d, kind, lat: d.lat, lon: d.lon },
-        });
+    const pointLayers: PointLayerSpec[] = [
+      { stream: 'data:conflictZones', enabled: layers.conflictZones, color: Color.RED, pixelSize: 8, kind: 'conflict', temporal: true },
+      { stream: 'data:breaches', enabled: layers.breachLocator, color: Color.GOLD, pixelSize: 8, kind: 'breach' },
+      { stream: 'data:rfNodes', enabled: layers.rfNodes, color: Color.CYAN, pixelSize: 6, kind: 'rf', temporal: true },
+      { stream: 'data:vessels', enabled: layers.maritime, color: Color.fromCssColorString('#00bcd4'), pixelSize: 6, kind: 'maritime', temporal: true },
+      { stream: 'data:cyberThreats', enabled: layers.cyberThreats, color: Color.fromCssColorString('#ff3131'), pixelSize: 6, kind: 'shodan', temporal: true },
+      { stream: 'data:wardriving', enabled: layers.signalFog, color: Color.LIME, pixelSize: 5, kind: 'signal' },
+      { stream: 'data:ghostMarkers', enabled: layers.ghostMarkers, color: Color.WHITE, pixelSize: 6, kind: 'ghost' },
+      { stream: 'data:witnessAnnotations', enabled: layers.witnessAnnotations, color: Color.LIME, pixelSize: 8, kind: 'witness' },
+      { stream: 'data:seekerNodes', enabled: layers.seekerNodes, color: Color.GOLD, pixelSize: 8, kind: 'osint' },
+      { stream: 'data:mcpNodes', enabled: layers.mcpNodes, color: Color.ORANGE, pixelSize: 6, kind: 'mcp' },
+      { stream: 'data:liquidityHeatmap', enabled: layers.liquidityHeatmap, color: Color.ORANGERED, pixelSize: 6, kind: 'liquidity', temporal: true },
+      { stream: 'data:seismicWindows', enabled: layers.seismicWindows, color: Color.fromCssColorString('#00e5ff'), pixelSize: 6, kind: 'seismic', temporal: true },
+      { stream: 'data:highEntropyNodes', enabled: layers.highEntropyNodes, color: Color.MAGENTA, pixelSize: 8, kind: 'entropy' },
+    ];
+
+    const edgeLayers: EdgeLayerSpec[] = [
+      { stream: 'data:threatArcs', enabled: layers.threatMap, color: Color.fromCssColorString('#ff3131') },
+      { stream: 'data:resonanceLinks', enabled: layers.resonanceLinks, color: Color.GOLD },
+    ];
+
+    const reconcileSet = (streamName: string, nextIds: Set<string>) => {
+      const previous = streamEntitiesRef.current.get(streamName) ?? new Set<string>();
+      previous.forEach((id) => {
+        if (!nextIds.has(id)) {
+          viewer.entities.removeById(id);
+        }
       });
+      streamEntitiesRef.current.set(streamName, nextIds);
     };
 
-    const addVolumetricEdges = (arr: Track[], color: Color) => {
-      arr.forEach((a) => {
+    pointLayers.forEach((layer) => {
+      const streamName = layer.stream;
+      if (!layer.enabled) {
+        reconcileSet(streamName, new Set());
+        return;
+      }
+
+      const source = layer.temporal ? recent(synapticFeed[streamName]) : synapticFeed[streamName];
+      const nextIds = new Set<string>();
+      source.filter((d) => Number.isFinite(d.lat) && Number.isFinite(d.lon)).forEach((d) => {
+        const id = `${streamName}:${d.id}`;
+        nextIds.add(id);
+        const entity = viewer.entities.getById(id) as Entity | undefined;
+        const position = Cartesian3.fromDegrees(d.lon as number, d.lat as number, 15000);
+        if (!entity) {
+          viewer.entities.add({
+            id,
+            position,
+            point: {
+              color: layer.color,
+              pixelSize: layer.pixelSize,
+              outlineColor: Color.BLACK,
+              outlineWidth: 1,
+              heightReference: HeightReference.NONE,
+            },
+            properties: { ...d, kind: layer.kind, lat: d.lat, lon: d.lon },
+          });
+        } else {
+          viewer.entities.removeById(id);
+          viewer.entities.add({
+            id,
+            position,
+            point: {
+              color: layer.color,
+              pixelSize: layer.pixelSize,
+              outlineColor: Color.BLACK,
+              outlineWidth: 1,
+              heightReference: HeightReference.NONE,
+            },
+            properties: { ...d, kind: layer.kind, lat: d.lat, lon: d.lon },
+          });
+        }
+      });
+      reconcileSet(streamName, nextIds);
+    });
+
+    edgeLayers.forEach((layer) => {
+      const streamName = layer.stream;
+      if (!layer.enabled) {
+        reconcileSet(streamName, new Set());
+        return;
+      }
+      const nextIds = new Set<string>();
+      synapticFeed[streamName].forEach((a) => {
         if (!a.from || !a.to) return;
-        viewer.entities.add({
-          id: `edge-${a.id}`,
-          polyline: {
-            positions: Cartesian3.fromDegreesArrayHeights([
-              a.from.lon, a.from.lat, 12000,
-              (a.from.lon + a.to.lon) / 2, (a.from.lat + a.to.lat) / 2, 300000,
-              a.to.lon, a.to.lat, 12000,
-            ]),
-            width: 2,
-            material: color.withAlpha(0.9),
-            arcType: ArcType.NONE,
-          },
-        });
+        const id = `${streamName}:${a.id}`;
+        nextIds.add(id);
+        const entity = viewer.entities.getById(id) as Entity | undefined;
+        const positions = Cartesian3.fromDegreesArrayHeights([
+          a.from.lon, a.from.lat, 12000,
+          (a.from.lon + a.to.lon) / 2, (a.from.lat + a.to.lat) / 2, 300000,
+          a.to.lon, a.to.lat, 12000,
+        ]);
+        if (!entity) {
+          viewer.entities.add({
+            id,
+            polyline: { positions, width: 2, material: layer.color.withAlpha(0.9), arcType: ArcType.NONE },
+          });
+        } else {
+          viewer.entities.removeById(id);
+          viewer.entities.add({
+            id,
+            polyline: { positions, width: 2, material: layer.color.withAlpha(0.9), arcType: ArcType.NONE },
+          });
+        }
       });
-    };
-
-    if (layers.conflictZones) addPoints(recent(datasets['data:conflictZones'] ?? []), Color.RED, 8, 'conflict');
-    if (layers.breachLocator) addPoints(datasets['data:breaches'] ?? [], Color.GOLD, 8, 'breach');
-    if (layers.rfNodes) addPoints(recent(datasets['data:rfNodes'] ?? []), Color.CYAN, 6, 'rf');
-    if (layers.maritime) addPoints(recent(datasets['data:vessels'] ?? []), Color.fromCssColorString('#00bcd4'), 6, 'maritime');
-    if (layers.cyberThreats) addPoints(recent(datasets['data:cyberThreats'] ?? []), Color.fromCssColorString('#ff3131'), 6, 'shodan');
-    if (layers.signalFog) addPoints(datasets['data:wardriving'] ?? [], Color.LIME, 5, 'signal');
-    if (layers.ghostMarkers) addPoints(datasets['data:ghostMarkers'] ?? [], Color.WHITE, 6, 'ghost');
-    if (layers.witnessAnnotations) addPoints(datasets['data:witnessAnnotations'] ?? [], Color.LIME, 8, 'witness');
-    if (layers.seekerNodes) addPoints(datasets['data:seekerNodes'] ?? [], Color.GOLD, 8, 'osint');
-    if (layers.mcpNodes) addPoints(datasets['data:mcpNodes'] ?? [], Color.ORANGE, 6, 'mcp');
-    if (layers.liquidityHeatmap) addPoints(recent(datasets['data:liquidityHeatmap'] ?? []), Color.ORANGERED, 6, 'liquidity');
-    if (layers.seismicWindows) addPoints(recent(datasets['data:seismicWindows'] ?? []), Color.fromCssColorString('#00e5ff'), 6, 'seismic');
-    if (layers.highEntropyNodes) addPoints(datasets['data:highEntropyNodes'] ?? [], Color.MAGENTA, 8, 'entropy');
-    if (layers.threatMap) addVolumetricEdges(datasets['data:threatArcs'] ?? [], Color.fromCssColorString('#ff3131'));
-    if (layers.resonanceLinks) addVolumetricEdges(datasets['data:resonanceLinks'] ?? [], Color.GOLD);
-  }, [datasets, layers, cut]);
+      reconcileSet(streamName, nextIds);
+    });
+  }, [synapticFeed, layers, cut]);
 
   return (
     <div className="w-full h-full relative overflow-hidden bg-[#02110b]">
       <div ref={containerRef} className="w-full h-full" />
-      <div className="absolute left-3 bottom-3 z-[1000] text-xs text-emerald-300 bg-black/70 border border-emerald-600/50 p-2 rounded">HORUS SIS ONLINE · Cesium offline canvas (localhost tile server only).</div>
+      <div className="absolute left-3 bottom-3 z-[1000] text-xs text-emerald-300 bg-black/70 border border-emerald-600/50 p-2 rounded">HORUS SIS ONLINE · Differential Synaptic updates active.</div>
     </div>
   );
 };
