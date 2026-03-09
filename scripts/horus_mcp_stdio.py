@@ -24,6 +24,8 @@ mcp = FastMCP("horus-intel-graph")
 def _conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS intel_nodes (
@@ -46,10 +48,14 @@ def _conn() -> sqlite3.Connection:
           relationship_type TEXT NOT NULL,
           weight REAL NOT NULL DEFAULT 1,
           properties_json TEXT NOT NULL DEFAULT '{}',
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(source_node_id) REFERENCES intel_nodes(id),
+          FOREIGN KEY(target_node_id) REFERENCES intel_nodes(id)
         )
         """
     )
+    conn.execute("CREATE INDEX IF NOT EXISTS intel_nodes_case_idx ON intel_nodes(case_id, id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS intel_edges_case_idx ON intel_edges(case_id, source_node_id, target_node_id)")
     return conn
 
 

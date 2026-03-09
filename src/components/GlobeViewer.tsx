@@ -9,8 +9,7 @@ import {
   Math as CesiumMath,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
-  ImageryLayer,
-  SingleTileImageryProvider,
+  UrlTemplateImageryProvider,
   Viewer,
 } from 'cesium';
 import { useWorldViewStore } from '../store';
@@ -56,7 +55,11 @@ const GlobeViewer = () => {
 
 
     viewer.imageryLayers.removeAll();
-    viewer.imageryLayers.add(ImageryLayer.fromProviderAsync(SingleTileImageryProvider.fromUrl('/data/tactical-basemap.svg')));
+    viewer.imageryLayers.addImageryProvider(new UrlTemplateImageryProvider({
+      url: '/maps/tiles/{z}/{x}/{reverseY}.png?tms=true',
+      minimumLevel: 0,
+      maximumLevel: 6,
+    }));
     viewer.scene.globe.enableLighting = false;
     viewer.scene.globe.depthTestAgainstTerrain = false;
     viewer.scene.backgroundColor = Color.fromCssColorString('#000500');

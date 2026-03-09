@@ -11,7 +11,7 @@ Open `http://localhost:3000`.
 
 ## Core architecture
 - Zero outbound runtime API calls (blocked in server runtime).
-- Local MBTiles-backed tile server at `/maps/tiles/{z}/{x}/{y}.png` with XYZ→TMS inversion support (`y = (2^z - 1) - y`) and Leaflet `tms: true` compatibility.
+- Local MBTiles-backed tile server at `/maps/tiles/{z}/{x}/{y}.png` with XYZ→TMS inversion support (`y = (2^z - 1) - y`) and Cesium `reverseY` compatibility.
 - Local datasets from:
   - `data/boundaries`
   - `data/conflicts`
@@ -63,7 +63,7 @@ Use the ⚙ **Settings** button in the top-right to configure:
 ./scripts/fetch-local-data.sh
 node scripts/scrape-rf-maritime.mjs
 node scripts/scrape-cyber.mjs
-node scripts/seeker-kernel.mjs
+python scripts/seeker_kernel.py
 python scripts/offline_mbtiles_server.py --mbtiles maps/offline.mbtiles --port 8099
 python scripts/horus_mcp_stdio.py
 ```
@@ -99,3 +99,9 @@ install_airgap_veto(allowed_proxy_hosts=['127.0.0.1'])
 
 ## Recursive CTE graph chains
 - `get_target_graph` in `scripts/horus_mcp_stdio.py` uses a recursive SQLite CTE to traverse connected nodes up to 3 hops and returns a JSON graph payload.
+
+
+## Frontend Modularization
+- `src/components/WorldviewCanvas.tsx`: dedicated 3D SIS canvas wrapper.
+- `src/components/OSINTDash.tsx`: dedicated intelligence sidebar wrapper.
+- Layer rows are isolated in `src/components/layers/LayerControlRow.tsx` with per-layer settings gear controls.
