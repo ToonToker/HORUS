@@ -230,12 +230,14 @@ const GlobeViewer = () => {
           viewer.entities.add({
             id,
             polyline: { positions, width: 2, material: layer.color.withAlpha(0.9), arcType: ArcType.NONE },
+            properties: { kind: 'edge', from: a.from, to: a.to, sourceStream: streamName },
           });
         } else {
           viewer.entities.removeById(id);
           viewer.entities.add({
             id,
             polyline: { positions, width: 2, material: layer.color.withAlpha(0.9), arcType: ArcType.NONE },
+            properties: { kind: 'edge', from: a.from, to: a.to, sourceStream: streamName },
           });
         }
       });
@@ -255,6 +257,7 @@ const GlobeViewer = () => {
         viewer.entities.add({
           id,
           polyline: { positions, width: 1.5, material: Color.fromCssColorString('#FFD700').withAlpha(0.75), arcType: ArcType.NONE },
+          properties: { kind: 'causal-vector', linkId: v.id, from: v.from, to: v.to },
         });
       }
     });

@@ -116,6 +116,7 @@ interface WorldViewState {
   patchLayerSetting: (layer: LayerKey, patch: Partial<LayerSetting>) => void;
   updateLayerController: (layer: LayerKey, patch: Partial<LayerConfig>) => void;
   setStreamBatch: (stream: StreamKey, payload: SynapticTrack[]) => void;
+  appendStreamItem: (stream: StreamKey, payload: SynapticTrack) => void;
 }
 
 const defaultSettings: SovereignSettings = {
@@ -255,5 +256,9 @@ export const useWorldViewStore = create<WorldViewState>((set) => ({
   setStreamBatch: (stream, payload) => set((state) => ({
     synapticFeed: { ...state.synapticFeed, [stream]: payload },
     streamIngressLog: [`${new Date().toISOString()} ${stream} ${payload.length}`, ...state.streamIngressLog].slice(0, 30),
+  })),
+  appendStreamItem: (stream, payload) => set((state) => ({
+    synapticFeed: { ...state.synapticFeed, [stream]: [payload, ...state.synapticFeed[stream]].slice(0, 5000) },
+    streamIngressLog: [`${new Date().toISOString()} ${stream} +1`, ...state.streamIngressLog].slice(0, 30),
   })),
 }));

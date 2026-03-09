@@ -62,6 +62,7 @@ Use the ⚙ **Settings** button in the top-right to configure:
 - `GET /api/intel/graph`
 - `POST /api/sigint/investigate`
 - `POST /api/kernel/sync` (Layer settings handshake -> MCP config_update -> kernel config.json)
+- `GET /api/kernel/events` (Python SSE stream for real-time graph node/edge pushes)
 
 ## Helpers
 ```bash
@@ -71,6 +72,7 @@ node scripts/scrape-cyber.mjs
 python scripts/seeker_kernel.py  # TOR SOCKS5 + NEWNYM identity rotation
 python scripts/offline_mbtiles_server.py --mbtiles maps/offline.mbtiles --port 8099
 python scripts/horus_mcp_stdio.py
+python scripts/horus_graph_kernel.py  # serves /api/kernel/events SSE + graph persistence
 ```
 
 

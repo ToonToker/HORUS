@@ -801,23 +801,6 @@ async function startServer() {
     emitState(io);
     res.json({ success: true, id, title, isolatedPath });
   });
-}
-
-
-function applyMaatFilter(nodes: Entity[]): Entity[] {
-  const out: Entity[] = [];
-  for (const node of nodes) {
-    const decision = gatekeeper.audit(node);
-    if (decision.valid) {
-      state.audit.accepted += 1;
-      out.push({ ...node, validation: decision });
-    } else {
-      state.audit.vetoed += 1;
-      state.audit.lastReason = decision.reason;
-    }
-  }
-  return out;
-}
 
   app.post("/api/cases/activate", (req, res) => {
     const id = String(req.body?.id || "");
@@ -832,7 +815,6 @@ function applyMaatFilter(nodes: Entity[]): Entity[] {
     emitState(io);
     res.json({ success: true, activeCaseId: id });
   });
-}
 
   app.get("/api/witness/annotations", (_req, res) => res.json(state.annotations));
   app.get("/api/validation/high-entropy", (_req, res) => res.json({ activeCaseId: state.activeCaseId, nodes: state.highEntropyNodes }));
