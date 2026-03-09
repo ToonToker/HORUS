@@ -19,6 +19,7 @@ Open `http://localhost:3000`.
   - `data/mcp`
 
 ## New HORUS-INTELLIGENCE-ENTITY upgrades
+- **Settings Handshake:** layer settings persist to `data/mcp/config.json` and emit `kernel_signal.json` for seeker reload orchestration.
 - **Synaptic Filter (Pydantic):** scraper outputs are schema-validated before DB write; malformed/poisoned/noisy payloads are vetoed and logged to `data/threats/synaptic_anomalies.log`.
 - **Entity Resolution UPSERT:** validated nodes are deduplicated into `synaptic_nodes` by `external_identifier`; causal discovery edges are inserted into `synaptic_edges`.
 - **Zustand Synaptic State:** frontend streams are centralized in a single store (`synapticFeed` + ingress log), with differential Cesium entity reconciliation to avoid full-globe rerenders.
@@ -60,6 +61,7 @@ Use the ⚙ **Settings** button in the top-right to configure:
 - `GET /api/intel/resource-nodes`
 - `GET /api/intel/graph`
 - `POST /api/sigint/investigate`
+- `POST /api/kernel/sync` (Layer settings handshake -> MCP config_update -> kernel config.json)
 
 ## Helpers
 ```bash

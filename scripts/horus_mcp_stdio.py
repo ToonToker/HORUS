@@ -155,7 +155,7 @@ def get_target_graph(node_id: str, case_id: str = "default-case", max_depth: int
 @mcp.tool()
 def config_update(layer: str, config: dict[str, Any], source: str = "ui") -> dict[str, Any]:
     """Persist layer configuration updates from SIS controls."""
-    cfg_path = Path("data/mcp/layer_config.json")
+    cfg_path = Path("data/mcp/config.json")
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         existing = json.loads(cfg_path.read_text(encoding="utf-8"))
@@ -163,6 +163,7 @@ def config_update(layer: str, config: dict[str, Any], source: str = "ui") -> dic
         existing = {}
     existing[layer] = {**existing.get(layer, {}), **(config or {}), "source": source}
     cfg_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+    Path("data/mcp/kernel_signal.json").write_text(json.dumps({"type": "config_update", "layer": layer, "source": source}, indent=2), encoding="utf-8")
     return {"ok": True, "layer": layer, "config": existing[layer]}
 
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { LayerKey, StreamKey, useWorldViewStore, WitnessStatus } from '../store';
+import { LayerConfig, LayerKey, StreamKey, useWorldViewStore, WitnessStatus } from '../store';
 import { LayerItem } from './LayerItem';
 import SettingsModal from './SettingsModal';
 
@@ -25,6 +25,7 @@ const Sidebar = () => {
     pendingWitnessPoint,
     selectedEntity,
     layerSettings,
+    layerControllers,
     layerSettingsModal,
     setLayerSettingsModal,
     patchLayerSetting,
@@ -91,32 +92,33 @@ const Sidebar = () => {
 
   const layerModels = useMemo(() => LAYER_CONTROLS.map((layer) => {
     const count = layer.stream ? (synapticFeed[layer.stream]?.length ?? 0) : 0;
-    const active = layers[layer.key];
+    const controller = layerControllers[layer.key];
+    const status = !controller.active ? 'OFFLINE' : (count > 0 ? 'LIVE' : 'IDLE');
     return {
       id: layer.key,
       name: layer.label,
-      active,
-      status: active ? (count > 0 ? 'LIVE' : 'IDLE') : 'OFFLINE' as const,
+      active: controller.active,
+      status,
       hasGear: layer.hasGear,
+      settings: controller.settings,
     };
-  }), [layers, synapticFeed]);
+  }), [layerControllers, synapticFeed]);
 
   const saveLayerSettings = async (patch: any) => {
     if (!layerSettingsModal) return;
     patchLayerSetting(layerSettingsModal, patch);
-    await fetch('/api/mcp/rpc', {
+    const model = layerModels.find((m) => m.id === layerSettingsModal);
+    const payload: LayerConfig = {
+      id: layerSettingsModal,
+      name: model?.name ?? layerSettingsModal,
+      active: layers[layerSettingsModal],
+      settings: { ...(layerSettings[layerSettingsModal] ?? {}), ...patch },
+      status: model?.status === 'LIVE' ? 'searching' : 'idle',
+    };
+    await fetch('http://localhost:3000/api/kernel/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: Date.now(),
-        method: 'config_update',
-        params: {
-          layer: layerSettingsModal,
-          config: patch,
-          source: 'SIS-LayerSettings-Modal',
-        },
-      }),
+      body: JSON.stringify(payload),
     });
     setLayerSettingsModal(null);
   };

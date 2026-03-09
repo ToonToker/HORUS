@@ -80,6 +80,15 @@ class OSINTNode(BaseModel):
       return value
 
 
+
+
+def load_runtime_config() -> dict[str, Any]:
+    cfg = ROOT / "data" / "mcp" / "config.json"
+    try:
+        return json.loads(cfg.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
 def _log_anomaly(reason: str, payload: dict[str, Any]) -> None:
     ANOMALY_LOG.parent.mkdir(parents=True, exist_ok=True)
     with ANOMALY_LOG.open("a", encoding="utf-8") as f:
@@ -227,13 +236,25 @@ def _validate(raw_nodes: list[dict[str, Any]]) -> list[OSINTNode]:
 
 
 def run() -> int:
+    runtime_cfg = load_runtime_config()
     targets: list[str] = []
     if RAW_FILE.exists():
         targets.append(RAW_FILE.resolve().as_uri())
+    shodan_cfg = runtime_cfg.get("cyberThreats", {})
+    liquidity_cfg = runtime_cfg.get("liquidityHeatmap", {})
+    seeker_cfg = runtime_cfg.get("seekerNodes", {})
+
     if FLIGHTRADAR_URL:
         targets.append(FLIGHTRADAR_URL)
     if SHODAN_SEARCH_URL:
         targets.append(SHODAN_SEARCH_URL)
+
+    if isinstance(shodan_cfg.get("targetDorks"), str) and shodan_cfg.get("targetDorks"):
+        _log_anomaly("CONFIG_APPLIED_SHODAN_DORK", {"dork": shodan_cfg.get("targetDorks")})
+    if isinstance(liquidity_cfg.get("targetDorks"), str) and liquidity_cfg.get("targetDorks"):
+        _log_anomaly("CONFIG_APPLIED_LIQUIDITY_TARGET", {"target": liquidity_cfg.get("targetDorks")})
+    if isinstance(seeker_cfg.get("scraperDepth"), (int, float)):
+        _log_anomaly("CONFIG_APPLIED_OSINT_DEPTH", {"depth": seeker_cfg.get("scraperDepth")})
 
     if not targets:
         payload = {"generatedAt": 0, "nodes": [], "warning": "no targets configured"}

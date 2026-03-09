@@ -437,7 +437,6 @@ function loadSigintSuite() {
     if (!b) return [];
     return [{ id: `res-${s.id}`, from: { lat: b.lat, lon: b.lon }, to: { lat: s.lat, lon: s.lon }, ip: s.ip, port: s.port, service: s.service }];
   });
-}
 
   state.liquidityHeatmap = [...state.cyberThreats, ...state.vessels].slice(0, 200).map((n, i) => ({
     id: `liq-${i}`,
@@ -513,12 +512,13 @@ function scanLocalData() {
 
 
 function persistLayerConfig(layer: string, config: Record<string, any>, source = "ui") {
-  const file = path.join(DATA_DIRS.mcp, "layer_config.json");
+  const file = path.join(DATA_DIRS.mcp, "config.json");
   let current: Record<string, any> = {};
   try { current = JSON.parse(fs.readFileSync(file, "utf8")); } catch {}
   current[layer] = { ...(current[layer] ?? {}), ...config, updatedAt: Date.now(), source };
   fs.mkdirSync(DATA_DIRS.mcp, { recursive: true });
   fs.writeFileSync(file, JSON.stringify(current, null, 2));
+  fs.writeFileSync(path.join(DATA_DIRS.mcp, "kernel_signal.json"), JSON.stringify({ type: "config_update", layer, at: Date.now(), source }, null, 2));
 
   if (typeof config.scrapingFrequencySec === "number") {
     db.prepare("UPDATE runtime_settings SET scrape_frequency_sec = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 'global'").run(Math.max(5, Math.floor(config.scrapingFrequencySec)));
@@ -757,6 +757,22 @@ async function startServer() {
     req.on("close", () => clearInterval(timer));
   });
 
+
+  app.post("/api/kernel/sync", (req, res) => {
+    try {
+      const layer = String(req.body?.id || req.body?.layer || "unknown");
+      const name = String(req.body?.name || layer);
+      const active = Boolean(req.body?.active);
+      const settings = typeof req.body?.settings === "object" && req.body?.settings ? req.body.settings : {};
+      const status = String(req.body?.status || (active ? "idle" : "offline"));
+      const result = mcpRpcHandle("config_update", { layer, config: { ...settings, active, status, name }, source: "kernel-sync-endpoint" });
+      io.emit("kernel:config_updated", { layer, config: result?.config ?? settings });
+      res.json({ ok: true, layer, result });
+    } catch (error: any) {
+      res.status(400).json({ ok: false, error: error?.message || "kernel sync failed" });
+    }
+  });
+
   app.post("/api/mcp/rpc", (req, res) => {
     try {
       const id = req.body?.id ?? null;
@@ -785,6 +801,23 @@ async function startServer() {
     emitState(io);
     res.json({ success: true, id, title, isolatedPath });
   });
+}
+
+
+function applyMaatFilter(nodes: Entity[]): Entity[] {
+  const out: Entity[] = [];
+  for (const node of nodes) {
+    const decision = gatekeeper.audit(node);
+    if (decision.valid) {
+      state.audit.accepted += 1;
+      out.push({ ...node, validation: decision });
+    } else {
+      state.audit.vetoed += 1;
+      state.audit.lastReason = decision.reason;
+    }
+  }
+  return out;
+}
 
   app.post("/api/cases/activate", (req, res) => {
     const id = String(req.body?.id || "");
@@ -799,6 +832,7 @@ async function startServer() {
     emitState(io);
     res.json({ success: true, activeCaseId: id });
   });
+}
 
   app.get("/api/witness/annotations", (_req, res) => res.json(state.annotations));
   app.get("/api/validation/high-entropy", (_req, res) => res.json({ activeCaseId: state.activeCaseId, nodes: state.highEntropyNodes }));
@@ -806,6 +840,7 @@ async function startServer() {
     const rows = db.prepare("SELECT * FROM intel_resource_nodes WHERE case_id = ? ORDER BY created_at DESC LIMIT 2000").all(state.activeCaseId);
     res.json({ activeCaseId: state.activeCaseId, nodes: rows });
   });
+}
 
   app.get("/api/intel/graph", (_req, res) => {
     const nodes = db.prepare("SELECT * FROM intel_nodes WHERE case_id = ? ORDER BY created_at DESC LIMIT 5000").all(state.activeCaseId);

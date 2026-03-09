@@ -118,6 +118,36 @@ const GlobeViewer = () => {
       { stream: 'data:highEntropyNodes', enabled: layers.highEntropyNodes, color: Color.MAGENTA, pixelSize: 8, kind: 'entropy' },
     ];
 
+
+
+    const deriveCausalVectors = () => {
+      const points: SynapticTrack[] = [
+        ...synapticFeed['data:cyberThreats'],
+        ...synapticFeed['data:seekerNodes'],
+        ...synapticFeed['data:mcpNodes'],
+      ].filter((d) => Number.isFinite(d.lat) && Number.isFinite(d.lon));
+
+      const byLink = new Map<string, SynapticTrack[]>();
+      points.forEach((p) => {
+        const ip = typeof p.ip === 'string' ? p.ip : undefined;
+        const ts = typeof p.ts === 'number' ? String(Math.floor(p.ts / 60000)) : undefined;
+        [ip, ts].filter(Boolean).forEach((k) => {
+          const arr = byLink.get(k as string) ?? [];
+          arr.push(p);
+          byLink.set(k as string, arr);
+        });
+      });
+
+      const vectors: Array<{ id: string; from: SynapticTrack; to: SynapticTrack }> = [];
+      byLink.forEach((arr, key) => {
+        if (arr.length < 2) return;
+        for (let i = 1; i < arr.length; i += 1) {
+          vectors.push({ id: `causal-${key}-${arr[0].id}-${arr[i].id}`, from: arr[0], to: arr[i] });
+        }
+      });
+      return vectors.slice(0, 400);
+    };
+
     const edgeLayers: EdgeLayerSpec[] = [
       { stream: 'data:threatArcs', enabled: layers.threatMap, color: Color.fromCssColorString('#ff3131') },
       { stream: 'data:resonanceLinks', enabled: layers.resonanceLinks, color: Color.GOLD },
@@ -211,6 +241,25 @@ const GlobeViewer = () => {
       });
       reconcileSet(streamName, nextIds);
     });
+
+    const causalNext = new Set<string>();
+    deriveCausalVectors().forEach((v) => {
+      const id = `data:causalVectors:${v.id}`;
+      causalNext.add(id);
+      const positions = Cartesian3.fromDegreesArrayHeights([
+        v.from.lon as number, v.from.lat as number, 10000,
+        ((v.from.lon as number) + (v.to.lon as number)) / 2, ((v.from.lat as number) + (v.to.lat as number)) / 2, 180000,
+        v.to.lon as number, v.to.lat as number, 10000,
+      ]);
+      if (!viewer.entities.getById(id)) {
+        viewer.entities.add({
+          id,
+          polyline: { positions, width: 1.5, material: Color.fromCssColorString('#FFD700').withAlpha(0.75), arcType: ArcType.NONE },
+        });
+      }
+    });
+    reconcileSet('data:causalVectors', causalNext);
+
   }, [synapticFeed, layers, cut]);
 
   return (

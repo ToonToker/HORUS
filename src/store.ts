@@ -51,6 +51,15 @@ export type LayerSetting = {
   dbPath: string;
 };
 
+
+export interface LayerConfig {
+  id: LayerKey;
+  name: string;
+  active: boolean;
+  settings: LayerSetting;
+  status: 'idle' | 'searching' | 'error';
+}
+
 const STREAM_KEYS: StreamKey[] = [
   'data:conflictZones', 'data:breaches', 'data:threatArcs', 'data:rfNodes', 'data:vessels',
   'data:cyberThreats', 'data:wardriving', 'data:resonanceLinks', 'data:ghostMarkers',
@@ -92,6 +101,7 @@ interface WorldViewState {
   settings: SovereignSettings;
   layerSettingsModal: LayerKey | null;
   layerSettings: Record<string, LayerSetting>;
+  layerControllers: Record<LayerKey, LayerConfig>;
   synapticFeed: SynapticFeed;
   streamIngressLog: string[];
   toggleLayer: (layer: LayerKey) => void;
@@ -104,6 +114,7 @@ interface WorldViewState {
   patchSourceUrls: (patch: Partial<SovereignSettings['sourceUrls']>) => void;
   setLayerSettingsModal: (layer: LayerKey | null) => void;
   patchLayerSetting: (layer: LayerKey, patch: Partial<LayerSetting>) => void;
+  updateLayerController: (layer: LayerKey, patch: Partial<LayerConfig>) => void;
   setStreamBatch: (stream: StreamKey, payload: SynapticTrack[]) => void;
 }
 
@@ -125,6 +136,44 @@ const defaultLayerSetting: LayerSetting = {
   targetDorks: '',
   scraperDepth: 2,
   dbPath: 'horus.db',
+};
+
+
+const layerNameMap: Record<LayerKey, string> = {
+  borders: 'Borders',
+  conflictZones: 'Conflict Zones',
+  threatMap: 'Threat Map',
+  breachLocator: 'Breach Locator',
+  subseaCables: 'Subsea Cables',
+  seismicFaults: 'Seismic Faults',
+  powerGrid: 'Power Grid',
+  groundStations: 'Ground Stations',
+  witnessAnnotations: 'Witness Annotations',
+  rfNodes: 'RF Nodes',
+  maritime: 'AIS/ADSB',
+  cyberThreats: 'Shodan',
+  signalFog: 'Signal Fog',
+  resonanceLinks: 'Resonance Links',
+  ghostMarkers: 'Ghost Markers',
+  seekerNodes: 'OSINT',
+  mcpNodes: 'MCP Nodes',
+  liquidityHeatmap: 'Market Liquidity',
+  seismicWindows: 'Seismic Windows',
+  highEntropyNodes: 'High Entropy',
+};
+
+const makeLayerControllers = (layers: WorldViewState['layers'], layerSettings: Record<string, LayerSetting>): Record<LayerKey, LayerConfig> => {
+  const out = {} as Record<LayerKey, LayerConfig>;
+  (Object.keys(layers) as LayerKey[]).forEach((key) => {
+    out[key] = {
+      id: key,
+      name: layerNameMap[key],
+      active: layers[key],
+      settings: layerSettings[key] ?? defaultLayerSetting,
+      status: 'idle',
+    };
+  });
+  return out;
 };
 
 export const useWorldViewStore = create<WorldViewState>((set) => ({
@@ -164,7 +213,18 @@ export const useWorldViewStore = create<WorldViewState>((set) => ({
     seekerNodes: { ...defaultLayerSetting, targetDorks: 'wallet pivots', dbPath: 'cases/default-case' },
     liquidityHeatmap: { ...defaultLayerSetting, targetDorks: 'liquidity clusters', dbPath: 'data/mcp/lob_context.json' },
   },
-  toggleLayer: (layer) => set((state) => ({ layers: { ...state.layers, [layer]: !state.layers[layer] } })),
+  layerControllers: makeLayerControllers({
+    borders: true, conflictZones: true, threatMap: true, breachLocator: true, subseaCables: false, seismicFaults: false, powerGrid: false, groundStations: false, witnessAnnotations: true, rfNodes: true, maritime: true, cyberThreats: true, signalFog: false, resonanceLinks: true, ghostMarkers: true, seekerNodes: true, mcpNodes: true, liquidityHeatmap: true, seismicWindows: true, highEntropyNodes: true,
+  }, {
+    maritime: { ...defaultLayerSetting, targetDorks: 'ais cargo tanker' },
+    cyberThreats: { ...defaultLayerSetting, targetDorks: 'shodan net:10.0.0.0/8', dbPath: 'data/threats/shodan_scrape.csv' },
+    seekerNodes: { ...defaultLayerSetting, targetDorks: 'wallet pivots', dbPath: 'cases/default-case' },
+    liquidityHeatmap: { ...defaultLayerSetting, targetDorks: 'liquidity clusters', dbPath: 'data/mcp/lob_context.json' },
+  }),
+  toggleLayer: (layer) => set((state) => ({
+    layers: { ...state.layers, [layer]: !state.layers[layer] },
+    layerControllers: { ...state.layerControllers, [layer]: { ...state.layerControllers[layer], active: !state.layers[layer] } },
+  })),
   setSelectedEntity: (selectedEntity) => set({ selectedEntity }),
   setPendingWitnessPoint: (pendingWitnessPoint) => set({ pendingWitnessPoint }),
   setTemporalHours: (temporalHours) => set({ temporalHours }),
@@ -177,6 +237,19 @@ export const useWorldViewStore = create<WorldViewState>((set) => ({
     layerSettings: {
       ...state.layerSettings,
       [layer]: { ...(state.layerSettings[layer] ?? defaultLayerSetting), ...patch },
+    },
+    layerControllers: {
+      ...state.layerControllers,
+      [layer]: {
+        ...state.layerControllers[layer],
+        settings: { ...(state.layerControllers[layer]?.settings ?? defaultLayerSetting), ...patch },
+      },
+    },
+  })),
+  updateLayerController: (layer, patch) => set((state) => ({
+    layerControllers: {
+      ...state.layerControllers,
+      [layer]: { ...state.layerControllers[layer], ...patch },
     },
   })),
   setStreamBatch: (stream, payload) => set((state) => ({
