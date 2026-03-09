@@ -801,6 +801,23 @@ async function startServer() {
     emitState(io);
     res.json({ success: true, id, title, isolatedPath });
   });
+}
+
+
+function applyMaatFilter(nodes: Entity[]): Entity[] {
+  const out: Entity[] = [];
+  for (const node of nodes) {
+    const decision = gatekeeper.audit(node);
+    if (decision.valid) {
+      state.audit.accepted += 1;
+      out.push({ ...node, validation: decision });
+    } else {
+      state.audit.vetoed += 1;
+      state.audit.lastReason = decision.reason;
+    }
+  }
+  return out;
+}
 
   app.post("/api/cases/activate", (req, res) => {
     const id = String(req.body?.id || "");
@@ -815,6 +832,7 @@ async function startServer() {
     emitState(io);
     res.json({ success: true, activeCaseId: id });
   });
+}
 
   app.get("/api/witness/annotations", (_req, res) => res.json(state.annotations));
   app.get("/api/validation/high-entropy", (_req, res) => res.json({ activeCaseId: state.activeCaseId, nodes: state.highEntropyNodes }));
@@ -822,6 +840,7 @@ async function startServer() {
     const rows = db.prepare("SELECT * FROM intel_resource_nodes WHERE case_id = ? ORDER BY created_at DESC LIMIT 2000").all(state.activeCaseId);
     res.json({ activeCaseId: state.activeCaseId, nodes: rows });
   });
+}
 
   app.get("/api/intel/graph", (_req, res) => {
     const nodes = db.prepare("SELECT * FROM intel_nodes WHERE case_id = ? ORDER BY created_at DESC LIMIT 5000").all(state.activeCaseId);
