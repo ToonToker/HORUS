@@ -1,0 +1,1992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WorldView 4D Command Center - Enhanced</title>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        :root {
+            --bg: #050a14;
+            --panel: rgba(8,18,38,0.95);
+            --border: #0e2a4a;
+            --accent: #00d4ff;
+            --accent2: #00ff88;
+            --warn: #ff6b35;
+            --danger: #ff2d55;
+            --text: #e2e8f0;
+            --muted: #4a6080;
+            --gold: #ffd700;
+            --purple: #bf7fff;
+        }
+
+        html, body { 
+            width: 100%; 
+            height: 100%; 
+            overflow: hidden; 
+            background: var(--bg); 
+            font-family: 'Courier New', monospace; 
+            color: var(--text);
+        }
+
+        #cesiumContainer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+        }
+
+        .cesium-widget-credits, .cesium-viewer-toolbar, 
+        .cesium-viewer-animationContainer, .cesium-viewer-timelineContainer,
+        .cesium-viewer-bottom, .cesium-infoBox { display: none !important; }
+
+        /* TOP HUD */
+        #hud-top {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 56px;
+            z-index: 50;
+            background: rgba(5,10,20,0.92);
+            border-bottom: 1px solid var(--border);
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 14px;
+            box-shadow: 0 2px 20px rgba(0,0,0,0.7);
+        }
+
+        .logo-badge {
+            background: var(--accent);
+            color: #000;
+            font-weight: bold;
+            font-size: 11px;
+            padding: 4px 9px;
+            border-radius: 4px;
+            letter-spacing: 1.5px;
+            flex-shrink: 0;
+        }
+
+        #hud-top h1 {
+            font-size: 14px;
+            letter-spacing: 3px;
+            color: var(--accent);
+            text-shadow: 0 0 12px rgba(0,212,255,0.6);
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .top-divider {
+            width: 1px;
+            height: 32px;
+            background: var(--border);
+            flex-shrink: 0;
+        }
+
+        .stat-pill {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 75px;
+            background: rgba(0,0,0,0.4);
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            padding: 4px 11px;
+            cursor: default;
+            flex-shrink: 0;
+        }
+
+        .stat-pill .sv {
+            font-size: 17px;
+            font-weight: bold;
+            color: var(--accent);
+            line-height: 1.1;
+        }
+
+        .stat-pill .sl {
+            font-size: 8px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .live-tag {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--accent2);
+            flex-shrink: 0;
+        }
+
+        .pulse {
+            width: 8px;
+            height: 8px;
+            background: var(--accent2);
+            border-radius: 50%;
+            animation: pulse 1.3s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(1.6); }
+        }
+
+        .clock-display {
+            margin-left: auto;
+            font-size: 14px;
+            font-weight: bold;
+            color: var(--accent);
+            letter-spacing: 2px;
+            flex-shrink: 0;
+        }
+
+        /* LEFT PANEL - FLIGHT LIST */
+        #panel-left {
+            position: fixed;
+            top: 56px;
+            left: 0;
+            bottom: 60px;
+            width: 290px;
+            z-index: 40;
+            background: var(--panel);
+            border-right: 1px solid var(--border);
+            backdrop-filter: blur(12px);
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s;
+        }
+
+        #panel-left.collapsed { transform: translateX(-270px); }
+
+        .panel-title {
+            padding: 11px 14px;
+            font-size: 10px;
+            letter-spacing: 2px;
+            color: var(--muted);
+            text-transform: uppercase;
+            background: rgba(0,0,0,0.5);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .search-input {
+            margin: 10px;
+            padding: 8px 12px;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 5px;
+            font-family: inherit;
+            font-size: 12px;
+            width: calc(100% - 20px);
+        }
+
+        .search-input:focus {
+            outline: 1px solid var(--accent);
+        }
+
+        .filter-row {
+            padding: 5px 10px;
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .filter-btn {
+            padding: 4px 9px;
+            font-size: 10px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--muted);
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: inherit;
+            letter-spacing: 1px;
+            transition: all 0.15s;
+            text-transform: uppercase;
+        }
+
+        .filter-btn.active, .filter-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(0,212,255,0.1);
+        }
+
+        #flight-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .flight-row {
+            padding: 9px 14px;
+            border-bottom: 1px solid rgba(14,42,74,0.5);
+            cursor: pointer;
+            transition: background 0.1s;
+            display: flex;
+            align-items: center;
+            gap: 9px;
+        }
+
+        .flight-row:hover {
+            background: rgba(0,212,255,0.08);
+        }
+
+        .flight-row.selected {
+            background: rgba(0,212,255,0.15);
+            border-left: 3px solid var(--accent);
+        }
+
+        .flight-row .fr-icon {
+            font-size: 15px;
+        }
+
+        .flight-row .fr-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .flight-row .fr-cs {
+            font-size: 13px;
+            font-weight: bold;
+            color: var(--text);
+        }
+
+        .flight-row .fr-route {
+            font-size: 10px;
+            color: var(--muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .flight-row .fr-alt {
+            font-size: 10px;
+            color: var(--accent2);
+            text-align: right;
+        }
+
+        /* RIGHT PANEL - TABS */
+        #panel-right {
+            position: fixed;
+            top: 56px;
+            right: 0;
+            bottom: 60px;
+            width: 320px;
+            z-index: 40;
+            background: var(--panel);
+            border-left: 1px solid var(--border);
+            backdrop-filter: blur(12px);
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s;
+        }
+
+        #panel-right.collapsed { transform: translateX(300px); }
+
+        .tab-bar {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .tab {
+            flex: 1;
+            padding: 10px;
+            font-size: 10px;
+            text-align: center;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--muted);
+            border: none;
+            background: transparent;
+            font-family: inherit;
+            transition: all 0.15s;
+        }
+
+        .tab.active {
+            color: var(--accent);
+            border-bottom: 2px solid var(--accent);
+            background: rgba(0,212,255,0.06);
+        }
+
+        .tab-content {
+            display: none;
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* DETAIL CARDS */
+        .detail-card {
+            background: rgba(0,0,0,0.4);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 14px;
+            margin-bottom: 12px;
+        }
+
+        .detail-card h3 {
+            font-size: 19px;
+            color: var(--accent);
+            letter-spacing: 2px;
+            margin-bottom: 5px;
+        }
+
+        .detail-card .airline {
+            font-size: 11px;
+            color: var(--muted);
+            margin-bottom: 12px;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 9px;
+        }
+
+        .dg-item {
+            background: rgba(0,0,0,0.3);
+            border-radius: 4px;
+            padding: 7px 10px;
+        }
+
+        .dg-label {
+            font-size: 9px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .dg-value {
+            font-size: 14px;
+            color: var(--text);
+            font-weight: bold;
+            margin-top: 3px;
+        }
+
+        /* RADIO SCANNER */
+        .radio-item {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--accent2);
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .radio-item:hover {
+            background: rgba(0,255,136,0.08);
+            border-left-color: var(--accent);
+        }
+
+        .radio-item.active {
+            border-left-color: var(--danger);
+            background: rgba(255,45,85,0.08);
+        }
+
+        .radio-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+
+        .radio-freq {
+            font-size: 15px;
+            font-weight: bold;
+            color: var(--accent2);
+            letter-spacing: 1px;
+        }
+
+        .radio-item.active .radio-freq {
+            color: var(--danger);
+        }
+
+        .radio-type {
+            font-size: 9px;
+            padding: 2px 6px;
+            background: rgba(0,255,136,0.2);
+            border: 1px solid var(--accent2);
+            border-radius: 3px;
+            color: var(--accent2);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .radio-item.active .radio-type {
+            background: rgba(255,45,85,0.2);
+            border-color: var(--danger);
+            color: var(--danger);
+        }
+
+        .radio-label {
+            font-size: 11px;
+            color: var(--text);
+            margin-bottom: 3px;
+        }
+
+        .radio-location {
+            font-size: 9px;
+            color: var(--muted);
+        }
+
+        /* SETTINGS */
+        .setting-group {
+            margin-bottom: 16px;
+        }
+
+        .setting-group label {
+            font-size: 10px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+        }
+
+        .setting-group label span {
+            color: var(--accent);
+        }
+
+        input[type="range"] {
+            width: 100%;
+            -webkit-appearance: none;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--border);
+            outline: none;
+            cursor: pointer;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+            box-shadow: 0 0 7px rgba(0,212,255,0.6);
+        }
+
+        .toggle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 7px 0;
+            border-bottom: 1px solid rgba(14,42,74,0.4);
+            font-size: 11px;
+        }
+
+        .toggle {
+            position: relative;
+            width: 36px;
+            height: 20px;
+        }
+
+        .toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            inset: 0;
+            background: var(--border);
+            border-radius: 10px;
+            transition: 0.2s;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            width: 14px;
+            height: 14px;
+            left: 3px;
+            bottom: 3px;
+            background: var(--muted);
+            border-radius: 50%;
+            transition: 0.2s;
+        }
+
+        .toggle input:checked + .toggle-slider {
+            background: rgba(0,212,255,0.4);
+        }
+
+        .toggle input:checked + .toggle-slider:before {
+            transform: translateX(16px);
+            background: var(--accent);
+        }
+
+        .btn-sm {
+            width: 100%;
+            padding: 9px;
+            background: transparent;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 11px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            transition: all 0.2s;
+            margin-top: 7px;
+        }
+
+        .btn-sm:hover {
+            background: var(--accent);
+            color: #000;
+        }
+
+        .btn-sm.warn {
+            border-color: var(--warn);
+            color: var(--warn);
+        }
+
+        .btn-sm.warn:hover {
+            background: var(--warn);
+            color: #fff;
+        }
+
+        /* STATS */
+        .stats-big {
+            text-align: center;
+            padding: 16px;
+            background: rgba(0,0,0,0.4);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+
+        .stats-big .big-num {
+            font-size: 38px;
+            font-weight: bold;
+            color: var(--accent);
+            text-shadow: 0 0 18px rgba(0,212,255,0.5);
+        }
+
+        .stats-big .big-lbl {
+            font-size: 10px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+        }
+
+        .bar-row {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 5px 0;
+            font-size: 11px;
+            border-bottom: 1px solid rgba(14,42,74,0.3);
+        }
+
+        .bar-row .br-label {
+            min-width: 95px;
+            color: var(--muted);
+        }
+
+        .bar-row .br-bar {
+            flex: 1;
+            height: 5px;
+            background: var(--border);
+            border-radius: 3px;
+        }
+
+        .bar-row .br-fill {
+            height: 100%;
+            border-radius: 3px;
+            background: var(--accent2);
+            transition: width 0.5s;
+        }
+
+        .bar-row .br-val {
+            min-width: 45px;
+            text-align: right;
+            color: var(--accent);
+        }
+
+        /* BOTTOM CONTROLS */
+        #hud-bottom {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            z-index: 50;
+            background: rgba(5,10,20,0.95);
+            border-top: 1px solid var(--border);
+            backdrop-filter: blur(12px);
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 11px;
+        }
+
+        .ctrl-btn {
+            padding: 7px 14px;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid var(--border);
+            color: var(--muted);
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.15s;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .ctrl-btn:hover, .ctrl-btn.active {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(0,212,255,0.1);
+        }
+
+        .ctrl-btn.danger {
+            border-color: var(--danger);
+            color: var(--danger);
+        }
+
+        .speed-ctrl {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            font-size: 11px;
+            color: var(--muted);
+            flex-shrink: 0;
+        }
+
+        #time-speed {
+            width: 85px;
+        }
+
+        .sep {
+            width: 1px;
+            height: 32px;
+            background: var(--border);
+            flex-shrink: 0;
+        }
+
+        .status-msg {
+            margin-left: auto;
+            font-size: 11px;
+            color: var(--muted);
+            flex-shrink: 0;
+            animation: fadein 0.3s;
+        }
+
+        @keyframes fadein {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .data-badge {
+            font-size: 10px;
+            padding: 4px 9px;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+
+        .data-badge.live {
+            background: rgba(0,255,136,0.18);
+            color: var(--accent2);
+            border: 1px solid var(--accent2);
+        }
+
+        .data-badge.sim {
+            background: rgba(255,107,53,0.18);
+            color: var(--warn);
+            border: 1px solid var(--warn);
+        }
+
+        /* TOGGLE BUTTONS */
+        #toggle-left {
+            position: fixed;
+            top: 66px;
+            left: 290px;
+            z-index: 45;
+            width: 22px;
+            height: 44px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-left: none;
+            cursor: pointer;
+            border-radius: 0 5px 5px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--accent);
+            font-size: 13px;
+            transition: left 0.3s;
+        }
+
+        #toggle-right {
+            position: fixed;
+            top: 66px;
+            right: 320px;
+            z-index: 45;
+            width: 22px;
+            height: 44px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-right: none;
+            cursor: pointer;
+            border-radius: 5px 0 0 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--accent);
+            font-size: 13px;
+            transition: right 0.3s;
+        }
+
+        /* SELECTED INDICATOR */
+        #selected-indicator {
+            position: fixed;
+            top: 66px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 45;
+            background: rgba(0,212,255,0.15);
+            border: 1px solid var(--accent);
+            border-radius: 6px;
+            padding: 7px 18px;
+            font-size: 13px;
+            color: var(--accent);
+            backdrop-filter: blur(10px);
+            display: none;
+            text-align: center;
+            box-shadow: 0 0 22px rgba(0,212,255,0.25);
+        }
+
+        /* SCROLLBAR */
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: #050a14; }
+        ::-webkit-scrollbar-thumb { background: #0e2a4a; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+        /* LOADING OVERLAY */
+        #loading-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            background: rgba(5,10,20,0.97);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 18px;
+        }
+
+        #loading-overlay h2 {
+            font-size: 19px;
+            letter-spacing: 4px;
+            color: var(--accent);
+            text-shadow: 0 0 22px rgba(0,212,255,0.6);
+        }
+
+        #loading-overlay p {
+            font-size: 12px;
+            color: var(--muted);
+            letter-spacing: 1px;
+        }
+
+        .loading-bar {
+            width: 320px;
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .loading-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--accent2));
+            border-radius: 2px;
+            animation: loadfill 3s ease-in-out forwards;
+        }
+
+        @keyframes loadfill {
+            0% { width: 0; }
+            60% { width: 75%; }
+            100% { width: 100%; }
+        }
+
+        .select-box {
+            width: 100%;
+            padding: 7px 10px;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 5px;
+            font-family: inherit;
+            font-size: 12px;
+            margin-bottom: 11px;
+        }
+    
+        /* ── BOTTOM DROPDOWN MENUS ── */
+        .dropdown { position: relative; flex-shrink: 0; }
+        .dropdown-toggle { display: flex; align-items: center; gap: 5px; }
+        .dropdown-menu {
+            display: none;
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 0;
+            min-width: 200px;
+            background: var(--panel);
+            border: 1px solid var(--accent);
+            border-radius: 8px;
+            padding: 6px 0;
+            z-index: 200;
+            backdrop-filter: blur(14px);
+            box-shadow: 0 -4px 24px rgba(0,212,255,0.15);
+            animation: dropUp 0.15s ease;
+        }
+        .dropdown-menu.open { display: block; }
+        @keyframes dropUp {
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .dropdown-label {
+            font-size: 9px;
+            color: var(--muted);
+            letter-spacing: 2px;
+            padding: 6px 14px 4px;
+        }
+        .drop-item {
+            display: block;
+            width: 100%;
+            padding: 9px 14px;
+            background: transparent;
+            border: none;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 12px;
+            text-align: left;
+            cursor: pointer;
+            letter-spacing: 0.5px;
+            transition: background 0.1s, color 0.1s;
+        }
+        .drop-item:hover { background: rgba(0,212,255,0.12); color: var(--accent); }
+</style>
+</head>
+<body>
+<script>
+// Detect file:// protocol - Cesium Web Workers cannot run from file:// due to browser security
+if (window.location.protocol === 'file:') {
+    document.addEventListener('DOMContentLoaded', function() {
+        var overlay = document.getElementById('loading-overlay');
+        if (overlay) {
+            overlay.style.background = 'rgba(5,10,20,0.99)';
+            overlay.innerHTML = `
+            <div class="logo-badge" style="font-size:15px;padding:7px 14px;margin-bottom:20px">WORLDVIEW 4D</div>
+            <h2 style="color:#ff6b35;letter-spacing:3px;font-size:18px">⚠ LOCAL SERVER REQUIRED</h2>
+            <p style="color:#e2e8f0;font-size:13px;max-width:480px;text-align:center;line-height:1.8">
+                Cesium 3D globe cannot run from a <code style="color:#00d4ff">file://</code> URL.<br>
+                Browser security blocks the Web Workers it needs.
+            </p>
+            <div style="background:rgba(0,0,0,0.5);border:1px solid #0e2a4a;border-radius:8px;padding:20px;max-width:500px;font-size:12px;line-height:2;font-family:Courier New,monospace">
+                <div style="color:#00ff88;margin-bottom:10px;letter-spacing:2px;font-size:11px">── QUICK FIX OPTIONS ──</div>
+                <div style="color:#00d4ff">Option 1 — Python (built-in):</div>
+                <div style="color:#e2e8f0;background:rgba(0,212,255,0.08);padding:6px 10px;border-radius:4px;margin:4px 0 10px">
+                    cd path/to/your/file/folder<br>
+                    python -m http.server 8080
+                </div>
+                <div style="color:#00d4ff">Option 2 — Node.js:</div>
+                <div style="color:#e2e8f0;background:rgba(0,212,255,0.08);padding:6px 10px;border-radius:4px;margin:4px 0 10px">
+                    npx http-server . -p 8080
+                </div>
+                <div style="color:#00d4ff">Option 3 — VS Code:</div>
+                <div style="color:#e2e8f0;background:rgba(0,212,255,0.08);padding:6px 10px;border-radius:4px;margin:4px 0 10px">
+                    Install "Live Server" extension → right-click HTML → Open with Live Server
+                </div>
+                <div style="color:#ffd700;margin-top:10px">Then open: <span style="color:#00d4ff">http://localhost:8080/2WorldView-4D-Command-Center-FIXED.html</span></div>
+            </div>
+            `;
+        }
+    });
+}
+</script>
+
+    <!-- LOADING OVERLAY -->
+    <div id="loading-overlay">
+        <div class="logo-badge" style="font-size:15px;padding:7px 14px">WORLDVIEW 4D</div>
+        <h2>COMMAND CENTER INITIALIZING</h2>
+        <p>Loading 3D Globe • ADS-B Feed • Radio Networks • Calibrating Sensors...</p>
+        <div class="loading-bar"><div class="loading-fill"></div></div>
+    </div>
+
+    <!-- CESIUM GLOBE -->
+    <div id="cesiumContainer"></div>
+
+    <!-- SELECTED INDICATOR -->
+    <div id="selected-indicator">
+        <span id="sel-cs">---</span> &nbsp;&nbsp; <span id="sel-info">No selection</span>
+    </div>
+
+    <!-- TOP HUD -->
+    <div id="hud-top">
+        <span class="logo-badge">WV4D</span>
+        <h1>WORLDVIEW 4D COMMAND CENTER</h1>
+        <div class="top-divider"></div>
+        <div id="live-tag"><span class="pulse"></span><span id="data-mode-label">LIVE ADS-B</span></div>
+        <div class="top-divider"></div>
+        <div class="stat-pill"><span class="sv" id="s-flights">0</span><span class="sl">Flights</span></div>
+        <div class="stat-pill"><span class="sv" id="s-airborne">0</span><span class="sl">Airborne</span></div>
+        <div class="stat-pill"><span class="sv" id="s-countries">0</span><span class="sl">Countries</span></div>
+        <div class="stat-pill"><span class="sv" id="s-radios">0</span><span class="sl">Radio Feeds</span></div>
+        <div class="stat-pill"><span class="sv" id="s-speed">0</span><span class="sl">Avg Kts</span></div>
+        <div class="stat-pill"><span class="sv" id="s-alt">0</span><span class="sl">Avg FL</span></div>
+        <div class="clock-display" id="clk">00:00:00 UTC</div>
+    </div>
+
+    <!-- LEFT PANEL TOGGLE -->
+    <div id="toggle-left" onclick="toggleLeft()">◀</div>
+
+    <!-- LEFT PANEL -->
+    <div id="panel-left">
+        <div class="panel-title">
+            <span>📡 Live Flight Feed</span>
+            <span id="flight-count-badge" style="color:var(--accent)">0 flights</span>
+        </div>
+        <input type="text" id="search-input" placeholder="Search callsign, airline, country..." oninput="filterFlights()">
+        <div class="filter-row">
+            <button class="filter-btn active" data-filter="all" onclick="setFilter(this,'all')">All</button>
+            <button class="filter-btn" data-filter="commercial" onclick="setFilter(this,'commercial')">Commercial</button>
+            <button class="filter-btn" data-filter="cargo" onclick="setFilter(this,'cargo')">Cargo</button>
+            <button class="filter-btn" data-filter="private" onclick="setFilter(this,'private')">Private</button>
+            <button class="filter-btn" data-filter="military" onclick="setFilter(this,'military')">Military</button>
+            <button class="filter-btn" data-filter="helicopter" onclick="setFilter(this,'helicopter')">Helo</button>
+        </div>
+        <div id="flight-list"></div>
+    </div>
+
+    <!-- RIGHT PANEL TOGGLE -->
+    <div id="toggle-right" onclick="toggleRight()">▶</div>
+
+    <!-- RIGHT PANEL -->
+    <div id="panel-right">
+        <div class="tab-bar">
+            <button class="tab active" onclick="showTab('details')">Details</button>
+            <button class="tab" onclick="showTab('radio')">Radio</button>
+            <button class="tab" onclick="showTab('settings')">Settings</button>
+            <button class="tab" onclick="showTab('stats')">Stats</button>
+        </div>
+
+        <!-- DETAILS TAB -->
+        <div id="tab-details" class="tab-content active">
+            <div id="no-flight-msg" style="text-align:center;padding:35px 12px;color:var(--muted);font-size:12px">
+                <div style="font-size:40px;margin-bottom:12px">✈️</div>
+                Click any aircraft on the globe to view details
+            </div>
+            <div id="flight-detail-content" style="display:none">
+                <div class="detail-card">
+                    <h3 id="d-callsign">---</h3>
+                    <div class="airline" id="d-airline">---</div>
+                    <div class="detail-grid">
+                        <div class="dg-item"><div class="dg-label">Altitude</div><div class="dg-value" id="d-alt">---</div></div>
+                        <div class="dg-item"><div class="dg-label">Speed</div><div class="dg-value" id="d-spd">---</div></div>
+                        <div class="dg-item"><div class="dg-label">Heading</div><div class="dg-value" id="d-hdg">---</div></div>
+                        <div class="dg-item"><div class="dg-label">Vert Rate</div><div class="dg-value" id="d-vr">---</div></div>
+                        <div class="dg-item"><div class="dg-label">Origin</div><div class="dg-value" id="d-orig">---</div></div>
+                        <div class="dg-item"><div class="dg-label">ICAO24</div><div class="dg-value" id="d-icao" style="font-size:11px">---</div></div>
+                        <div class="dg-item"><div class="dg-label">Latitude</div><div class="dg-value" id="d-lat">---</div></div>
+                        <div class="dg-item"><div class="dg-label">Longitude</div><div class="dg-value" id="d-lon">---</div></div>
+                    </div>
+                </div>
+                <div class="detail-card">
+                    <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:9px">Estimated Route</div>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:13px">
+                        <span id="d-dep" style="color:var(--accent2)">---</span>
+                        <span style="color:var(--muted);flex:1;text-align:center">→</span>
+                        <span id="d-arr" style="color:var(--warn)">---</span>
+                    </div>
+                </div>
+                <button class="btn-sm" onclick="flyToSelected()">🎯 Fly To Aircraft</button>
+                <button class="btn-sm" onclick="trackSelected()">📍 Track Flight Path</button>
+                <button class="btn-sm warn" onclick="clearSelection()">✖ Clear Selection</button>
+            </div>
+        </div>
+
+        <!-- RADIO TAB -->
+        <div id="tab-radio" class="tab-content">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">🌍 Global Radio Scanner</div>
+            <div id="radio-list"></div>
+            <div style="margin-top:12px;padding:10px;background:rgba(0,0,0,0.3);border-radius:5px;font-size:10px;color:var(--muted);line-height:1.6">
+                <strong style="color:var(--accent2)">Real-time radio monitoring</strong> of ATC towers, approach, departure, ground control, emergency frequencies, and military channels worldwide.
+            </div>
+        </div>
+
+        <!-- SETTINGS TAB -->
+        <div id="tab-settings" class="tab-content">
+            <div class="setting-group">
+                <label>Brightness <span id="v-bright">1.0</span></label>
+                <input type="range" min="0.1" max="3.0" step="0.05" value="1.0" oninput="setSetting('brightness',this.value,'v-bright')">
+            </div>
+            <div class="setting-group">
+                <label>Contrast <span id="v-contrast">1.0</span></label>
+                <input type="range" min="0.1" max="3.0" step="0.05" value="1.0" oninput="setSetting('contrast',this.value,'v-contrast')">
+            </div>
+            <div class="setting-group">
+                <label>Saturation <span id="v-sat">1.0</span></label>
+                <input type="range" min="0.0" max="3.0" step="0.05" value="1.0" oninput="setSetting('saturation',this.value,'v-sat')">
+            </div>
+            <div class="setting-group">
+                <label>Sharpness (Gamma) <span id="v-gamma">1.0</span></label>
+                <input type="range" min="0.1" max="3.0" step="0.05" value="1.0" oninput="setSetting('gamma',this.value,'v-gamma')">
+            </div>
+            <div class="setting-group">
+                <label>Resolution Scale <span id="v-res">1.0x</span></label>
+                <input type="range" min="0.25" max="2.0" step="0.25" value="1.0" oninput="setResScale(this.value)">
+            </div>
+            <div class="setting-group">
+                <label>Globe Lighting <span id="v-light">1.0</span></label>
+                <input type="range" min="0.1" max="3.0" step="0.1" value="1.0" oninput="setLighting(this.value)">
+            </div>
+            <div class="setting-group">
+                <label>Aircraft Icon Size <span id="v-iconsize">1.0x</span></label>
+                <input type="range" min="0.4" max="3.0" step="0.1" value="1.0" oninput="setIconSize(this.value)">
+            </div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:12px 0 7px">Globe Settings</div>
+            <div class="toggle-row"><span>Atmosphere</span><label class="toggle"><input type="checkbox" checked onchange="toggleAtmosphere(this.checked)"><span class="toggle-slider"></span></label></div>
+            <div class="toggle-row"><span>Fog</span><label class="toggle"><input type="checkbox" checked onchange="toggleFog(this.checked)"><span class="toggle-slider"></span></label></div>
+            <div class="toggle-row"><span>Globe Lighting</span><label class="toggle"><input type="checkbox" checked onchange="toggleLighting(this.checked)"><span class="toggle-slider"></span></label></div>
+            <div class="toggle-row"><span>Shadows</span><label class="toggle"><input type="checkbox" onchange="toggleShadows(this.checked)"><span class="toggle-slider"></span></label></div>
+            <div class="toggle-row"><span>Aircraft Labels</span><label class="toggle"><input type="checkbox" checked onchange="toggleLabels(this.checked)"><span class="toggle-slider"></span></label></div>
+            <div class="toggle-row"><span>Flight Trails</span><label class="toggle"><input type="checkbox" onchange="toggleTrails(this.checked)"><span class="toggle-slider"></span></label></div>
+            <button class="btn-sm" onclick="resetSettings()">Reset All Settings</button>
+            <button class="btn-sm" style="margin-top:5px;border-color:var(--gold);color:var(--gold)" onclick="screenshotGlobe()">📸 Screenshot Globe</button>
+        </div>
+
+        <!-- STATS TAB -->
+        <div id="tab-stats" class="tab-content">
+            <div class="stats-big">
+                <div class="big-num" id="stats-total">0</div>
+                <div class="big-lbl">Total Aircraft Tracked</div>
+            </div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:12px 0 7px">By Aircraft Type</div>
+            <div class="bar-row"><span class="br-label">Commercial</span><div class="br-bar"><div class="br-fill" id="bar-commercial" style="width:0;background:var(--accent)"></div></div><span class="br-val" id="bv-commercial">0</span></div>
+            <div class="bar-row"><span class="br-label">Cargo</span><div class="br-bar"><div class="br-fill" id="bar-cargo" style="width:0;background:var(--warn)"></div></div><span class="br-val" id="bv-cargo">0</span></div>
+            <div class="bar-row"><span class="br-label">Private</span><div class="br-bar"><div class="br-fill" id="bar-private" style="width:0;background:var(--accent2)"></div></div><span class="br-val" id="bv-private">0</span></div>
+            <div class="bar-row"><span class="br-label">Military</span><div class="br-bar"><div class="br-fill" id="bar-military" style="width:0;background:var(--danger)"></div></div><span class="br-val" id="bv-military">0</span></div>
+            <div class="bar-row"><span class="br-label">Helicopter</span><div class="br-bar"><div class="br-fill" id="bar-helicopter" style="width:0;background:var(--gold)"></div></div><span class="br-val" id="bv-helicopter">0</span></div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:12px 0 7px">Top Countries</div>
+            <div id="top-countries-list"></div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:12px 0 7px">Top Airlines</div>
+            <div id="top-airlines-list"></div>
+        </div>
+    </div>
+
+    <!-- BOTTOM CONTROLS -->
+    <div id="hud-bottom">
+
+        <!-- NAV DROPDOWN -->
+        <div class="dropdown" id="nav-dropdown">
+            <button class="ctrl-btn dropdown-toggle" onclick="toggleDropdown('nav-menu')">🗺 Navigate ▾</button>
+            <div class="dropdown-menu" id="nav-menu" style="min-width:230px;max-height:480px;overflow-y:auto;">
+                <div class="dropdown-label">── VIEW ──</div>
+                <button class="drop-item" onclick="viewer.camera.flyTo({destination:Cesium.Cartesian3.fromDegrees(0,20,22000000),orientation:{heading:0,pitch:Cesium.Math.toRadians(-90),roll:0},duration:2.0});closeDropdowns()">🏠 Reset View</button>
+                <button class="drop-item" onclick="flyToRegion('globe');closeDropdowns()">🌐 Full Globe</button>
+
+                <div class="dropdown-label">── THE AMERICAS ──</div>
+                <button class="drop-item" onclick="flyToRegion('north-america');closeDropdowns()">🌎 North America</button>
+                <button class="drop-item" onclick="flyToRegion('central-america');closeDropdowns()">🌿 Central America</button>
+                <button class="drop-item" onclick="flyToRegion('caribbean');closeDropdowns()">🏝 Caribbean</button>
+                <button class="drop-item" onclick="flyToRegion('south-america');closeDropdowns()">🌎 South America</button>
+
+                <div class="dropdown-label">── EUROPE ──</div>
+                <button class="drop-item" onclick="flyToRegion('europe');closeDropdowns()">🌍 Western Europe</button>
+                <button class="drop-item" onclick="flyToRegion('eastern-europe');closeDropdowns()">🏰 Eastern Europe</button>
+                <button class="drop-item" onclick="flyToRegion('scandinavia');closeDropdowns()">🧊 Scandinavia</button>
+                <button class="drop-item" onclick="flyToRegion('russia');closeDropdowns()">🇷🇺 Russia</button>
+
+                <div class="dropdown-label">── AFRICA ──</div>
+                <button class="drop-item" onclick="flyToRegion('north-africa');closeDropdowns()">🏜 North Africa</button>
+                <button class="drop-item" onclick="flyToRegion('west-africa');closeDropdowns()">🌍 West Africa</button>
+                <button class="drop-item" onclick="flyToRegion('east-africa');closeDropdowns()">🦁 East Africa</button>
+                <button class="drop-item" onclick="flyToRegion('south-africa');closeDropdowns()">🌍 Southern Africa</button>
+
+                <div class="dropdown-label">── MIDDLE EAST & ASIA ──</div>
+                <button class="drop-item" onclick="flyToRegion('middle-east');closeDropdowns()">🕌 Middle East</button>
+                <button class="drop-item" onclick="flyToRegion('central-asia');closeDropdowns()">🏔 Central Asia</button>
+                <button class="drop-item" onclick="flyToRegion('south-asia');closeDropdowns()">🕌 South Asia</button>
+                <button class="drop-item" onclick="flyToRegion('east-asia');closeDropdowns()">🌏 East Asia</button>
+                <button class="drop-item" onclick="flyToRegion('china');closeDropdowns()">🐉 China</button>
+                <button class="drop-item" onclick="flyToRegion('japan-korea');closeDropdowns()">⛩ Japan / Korea</button>
+                <button class="drop-item" onclick="flyToRegion('southeast-asia');closeDropdowns()">🌴 Southeast Asia</button>
+
+                <div class="dropdown-label">── OCEANIA & POLAR ──</div>
+                <button class="drop-item" onclick="flyToRegion('australia');closeDropdowns()">🦘 Australia</button>
+                <button class="drop-item" onclick="flyToRegion('pacific');closeDropdowns()">🌊 Pacific Ocean</button>
+                <button class="drop-item" onclick="flyToRegion('arctic');closeDropdowns()">🧊 Arctic</button>
+                <button class="drop-item" onclick="flyToRegion('antarctica');closeDropdowns()">🐧 Antarctica</button>
+            </div>
+        </div>
+
+        <!-- PLAYBACK DROPDOWN -->
+        <div class="dropdown" id="playback-dropdown">
+            <button class="ctrl-btn dropdown-toggle" onclick="toggleDropdown('playback-menu')">⏱ Playback ▾</button>
+            <div class="dropdown-menu" id="playback-menu">
+                <div class="dropdown-label">── TIME SPEED ──</div>
+                <div style="padding:10px 14px">
+                    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:6px">
+                        <span>Speed</span><span id="time-speed-label" style="color:var(--accent)">1x</span>
+                    </div>
+                    <input type="range" id="time-speed" min="1" max="100" value="1" step="1"
+                        style="width:100%;accent-color:var(--accent)"
+                        oninput="setTimeSpeed(this.value)">
+                    <div style="display:flex;gap:6px;margin-top:10px">
+                        <button class="drop-item" style="flex:1;text-align:center" id="play-btn" onclick="toggleTime()">⏸ Pause</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DATA DROPDOWN -->
+        <div class="dropdown" id="data-dropdown">
+            <button class="ctrl-btn dropdown-toggle" onclick="toggleDropdown('data-menu')">📡 Data ▾</button>
+            <div class="dropdown-menu" id="data-menu">
+                <div class="dropdown-label">── SOURCE ──</div>
+                <button class="drop-item" onclick="fetchLiveData();closeDropdowns()">🔄 Refresh Live Data</button>
+                <button class="drop-item" onclick="loadSimData();closeDropdowns()">🎮 Load Simulated</button>
+                <div style="padding:8px 14px;display:flex;align-items:center;gap:8px">
+                    <span id="data-badge" class="data-badge sim">SIM</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="sep"></div>
+        <span id="status-msg" class="status-msg">Initializing command center...</span>
+    </div>
+
+    <script>
+        // CESIUM INIT
+        window.CESIUM_BASE_URL = 'https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/';
+        // Set CESIUM base URL for workers (required for local file:// and some hosts)
+        Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlYWNkMjFmZC1hMDFjLTRhZWItODZiNS05YjE4OTQwMjZlNTciLCJpZCI6Mzk4MTk1LCJpYXQiOjE3NzI2ODQ4ODZ9.F6JHxI-_ctxizxnbzCtUaWk4wU0zGnQNDw9AmGWDIgA';
+
+        let viewer;
+        try {
+        viewer = new Cesium.Viewer('cesiumContainer', {
+            baseLayerPicker: false,
+            geocoder: false,
+            baseLayerPicker: false,
+            geocoder: false,
+            navigationHelpButton: false,
+            sceneModePicker: false,
+            animation: false,
+            timeline: false,
+            homeButton: false,
+            fullscreenButton: false,
+            infoBox: false,
+            selectionIndicator: false
+        });
+
+        } catch(e) {
+            document.getElementById('loading-overlay').innerHTML = '<div style="color:#ff2d55;font-size:16px;text-align:center;padding:40px;">⚠️ Globe Error: ' + e.message + '<br><br><span style=\"color:#aaa;font-size:12px\">Check browser console (F12) for details.<br>Make sure you are online — Cesium requires internet access.</span></div>';
+            document.getElementById('loading-overlay').style.display = 'flex';
+        }
+        const scene = viewer ? viewer.scene : null;
+        if (!scene) { console.error('Cesium viewer failed to initialize'); }
+        scene.globe.enableLighting = true;
+        scene.globe.atmosphereLightIntensity = 10.0;
+        scene.globe.showGroundAtmosphere = true;
+        scene.skyAtmosphere.show = true;
+        scene.fog.enabled = true;
+        scene.fog.density = 0.0002;
+        scene.globe.depthTestAgainstTerrain = false;
+        scene.screenSpaceCameraController.enableCollisionDetection = false;
+        viewer.resolutionScale = 1.0;
+
+        viewer.camera.setView({
+            destination: Cesium.Cartesian3.fromDegrees(0, 20, 20000000),
+            orientation: {
+                heading: 0,
+                pitch: -Cesium.Math.PI_OVER_TWO,
+                roll: 0
+            }
+        });
+
+        // AIRCRAFT ICONS
+        function makeAircraftCanvas(color, size) {
+            const c = document.createElement('canvas');
+            c.width = size;
+            c.height = size;
+            const ctx = c.getContext('2d');
+            const s = size / 24;
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(12*s, 2*s);
+            ctx.lineTo(14*s, 8*s);
+            ctx.lineTo(22*s, 10*s);
+            ctx.lineTo(22*s, 12*s);
+            ctx.lineTo(14*s, 11*s);
+            ctx.lineTo(15*s, 18*s);
+            ctx.lineTo(18*s, 19*s);
+            ctx.lineTo(18*s, 21*s);
+            ctx.lineTo(12*s, 19.5*s);
+            ctx.lineTo(6*s, 21*s);
+            ctx.lineTo(6*s, 19*s);
+            ctx.lineTo(9*s, 18*s);
+            ctx.lineTo(10*s, 11*s);
+            ctx.lineTo(2*s, 12*s);
+            ctx.lineTo(2*s, 10*s);
+            ctx.lineTo(10*s, 8*s);
+            ctx.closePath();
+            ctx.fill();
+            return c;
+        }
+
+        const icons = {
+            commercial: makeAircraftCanvas('#00d4ff', 28),
+            cargo: makeAircraftCanvas('#ff6b35', 24),
+            private: makeAircraftCanvas('#00ff88', 20),
+            military: makeAircraftCanvas('#ff2d55', 26),
+            helicopter: makeAircraftCanvas('#ffd700', 20),
+            default: makeAircraftCanvas('#aaaaaa', 22)
+        };
+
+        // DATA MODEL
+        let allFlights = [];
+        let filteredFlights = [];
+        let activeFilter = 'all';
+        let searchQuery = '';
+        let selectedFlight = null;
+        let showLabels = true;
+        let useAltColor = true;
+        let iconScale = 1.0;
+        let isTimePlaying = true;
+        let timeSpeed = 1;
+        let animationInterval = null;
+        let activeRadio = null;
+
+        // DATABASES
+        const airlines = {
+            'AA':'American Airlines','UA':'United Airlines','DL':'Delta Air Lines','SW':'Southwest Airlines',
+            'B6':'JetBlue Airways','AS':'Alaska Airlines','F9':'Frontier Airlines','NK':'Spirit Airlines',
+            'BA':'British Airways','LH':'Lufthansa','AF':'Air France','KL':'KLM','IB':'Iberia',
+            'TK':'Turkish Airlines','EK':'Emirates','QR':'Qatar Airways','SQ':'Singapore Airlines',
+            'CX':'Cathay Pacific','NH':'ANA','JL':'Japan Airlines','QF':'Qantas','AC':'Air Canada',
+            'FX':'FedEx','UX':'UPS Airlines'
+        };
+
+        const countries = ['United States','Germany','United Kingdom','France','Netherlands','Spain','Italy',
+            'Turkey','UAE','Qatar','China','Japan','South Korea','India','Australia','Canada','Brazil',
+            'Singapore','Thailand','Saudi Arabia','Russia','Mexico','South Africa','Switzerland','Austria'];
+
+        const airports = [
+            {code:'JFK',lat:40.64,lon:-73.78,name:'New York JFK'},
+            {code:'LAX',lat:33.94,lon:-118.41,name:'Los Angeles'},
+            {code:'ORD',lat:41.98,lon:-87.90,name:'Chicago OHare'},
+            {code:'ATL',lat:33.64,lon:-84.43,name:'Atlanta'},
+            {code:'DFW',lat:32.90,lon:-97.04,name:'Dallas/Fort Worth'},
+            {code:'LHR',lat:51.48,lon:-0.46,name:'London Heathrow'},
+            {code:'CDG',lat:49.01,lon:2.55,name:'Paris CDG'},
+            {code:'FRA',lat:50.03,lon:8.57,name:'Frankfurt'},
+            {code:'DXB',lat:25.25,lon:55.36,name:'Dubai'},
+            {code:'SIN',lat:1.36,lon:103.99,name:'Singapore Changi'},
+            {code:'HKG',lat:22.31,lon:113.92,name:'Hong Kong'},
+            {code:'NRT',lat:35.77,lon:140.39,name:'Tokyo Narita'}
+        ];
+
+        const types = ['commercial','commercial','commercial','commercial','commercial','cargo','private','military','helicopter'];
+
+        // RADIO FREQUENCIES DATABASE
+        const radioFeeds = [
+            {freq:'118.300',label:'JFK Tower',type:'Tower',location:'New York, USA',lat:40.64,lon:-73.78},
+            {freq:'119.100',label:'LAX Tower',type:'Tower',location:'Los Angeles, USA',lat:33.94,lon:-118.41},
+            {freq:'120.750',label:'ORD Tower',type:'Tower',location:'Chicago, USA',lat:41.98,lon:-87.90},
+            {freq:'119.500',label:'ATL Tower',type:'Tower',location:'Atlanta, USA',lat:33.64,lon:-84.43},
+            {freq:'126.550',label:'LHR Approach',type:'Approach',location:'London, UK',lat:51.48,lon:-0.46},
+            {freq:'119.250',label:'CDG Tower',type:'Tower',location:'Paris, France',lat:49.01,lon:2.55},
+            {freq:'118.500',label:'FRA Approach',type:'Approach',location:'Frankfurt, Germany',lat:50.03,lon:8.57},
+            {freq:'121.900',label:'DXB Tower',type:'Tower',location:'Dubai, UAE',lat:25.25,lon:55.36},
+            {freq:'121.500',label:'Emergency',type:'Emergency',location:'International',lat:0,lon:0},
+            {freq:'243.000',label:'Military Emergency',type:'Military',location:'International',lat:0,lon:0},
+            {freq:'122.750',label:'Air-to-Air',type:'Common',location:'USA',lat:39.8,lon:-98.6},
+            {freq:'132.450',label:'New York Center',type:'Center',location:'New York, USA',lat:40.7,lon:-74.0},
+            {freq:'124.900',label:'Miami Center',type:'Center',location:'Miami, USA',lat:25.8,lon:-80.2},
+            {freq:'127.850',label:'Oakland Center',type:'Center',location:'Oakland, USA',lat:37.8,lon:-122.3},
+            {freq:'133.500',label:'Shanwick Oceanic',type:'Oceanic',location:'North Atlantic',lat:52.0,lon:-20.0},
+            {freq:'123.450',label:'Tokyo Control',type:'Center',location:'Tokyo, Japan',lat:35.7,lon:139.7},
+            {freq:'118.700',label:'SIN Tower',type:'Tower',location:'Singapore',lat:1.36,lon:103.99},
+            {freq:'119.600',label:'SYD Tower',type:'Tower',location:'Sydney, Australia',lat:-33.95,lon:151.18}
+        ];
+
+        // GENERATE SIMULATED FLIGHTS
+        function generateSimFlights(count) {
+            const flights = [];
+            for (let i = 0; i < count; i++) {
+                const orig = airports[Math.floor(Math.random() * airports.length)];
+                let dest = airports[Math.floor(Math.random() * airports.length)];
+                while (dest === orig) dest = airports[Math.floor(Math.random() * airports.length)];
+                
+                const t = Math.random();
+                const lat = orig.lat + (dest.lat - orig.lat) * t + (Math.random()-0.5)*2;
+                const lon = orig.lon + (dest.lon - orig.lon) * t + (Math.random()-0.5)*2;
+                
+                const type = types[Math.floor(Math.random() * types.length)];
+                const alCode = Object.keys(airlines)[Math.floor(Math.random() * Object.keys(airlines).length)];
+                const flNum = Math.floor(Math.random() * 9900 + 100);
+                
+                const alt = type==='helicopter' ? 500+Math.random()*3000 :
+                           type==='military' ? 5000+Math.random()*15000 :
+                           type==='private' ? 3000+Math.random()*12000 :
+                           8000 + Math.random()*40000;
+                
+                const spd = type==='helicopter' ? 80+Math.random()*100 :
+                           type==='private' ? 150+Math.random()*200 :
+                           200+Math.random()*250;
+                
+                const hdg = Math.atan2(dest.lon-orig.lon, dest.lat-orig.lat) * 180 / Math.PI;
+                const normHdg = ((hdg + 360) % 360);
+                
+                const country = countries[Math.floor(Math.random() * countries.length)];
+                
+                flights.push({
+                    icao24: Math.random().toString(16).substr(2,6),
+                    callsign: alCode + flNum,
+                    country,
+                    type,
+                    lat,
+                    lon,
+                    alt,
+                    spd,
+                    heading: normHdg,
+                    vertRate: (Math.random()-0.5)*5,
+                    origin: orig,
+                    dest,
+                    airline: airlines[alCode] || 'Private Charter',
+                    squawk: String(Math.floor(Math.random()*7777)).padStart(4,'0'),
+                    onGround: false,
+                    entity: null
+                });
+            }
+            return flights;
+        }
+
+        // ALTITUDE COLOR CODING
+        function altToColor(altMeters, type) {
+            if (!useAltColor) return Cesium.Color.fromCssColorString('#00d4ff');
+            const ft = altMeters * 3.28084;
+            if (type === 'military') return Cesium.Color.fromCssColorString('#ff2d55');
+            if (type === 'helicopter') return Cesium.Color.fromCssColorString('#ffd700');
+            if (type === 'cargo') return Cesium.Color.fromCssColorString('#ff6b35');
+            if (type === 'private') return Cesium.Color.fromCssColorString('#00ff88');
+            if (ft > 40000) return Cesium.Color.fromCssColorString('#bf7fff');
+            if (ft > 35000) return Cesium.Color.fromCssColorString('#00d4ff');
+            if (ft > 25000) return Cesium.Color.fromCssColorString('#00ff88');
+            if (ft > 10000) return Cesium.Color.fromCssColorString('#ffd700');
+            return Cesium.Color.fromCssColorString('#ff6b35');
+        }
+
+        // ADD ENTITIES TO GLOBE
+        function addFlightEntities(flights) {
+            viewer.entities.removeAll();
+            flights.forEach(f => {
+                const color = altToColor(f.alt, f.type);
+                const icon = icons[f.type] || icons.default;
+                const rot = Cesium.Math.toRadians(-f.heading + 0);
+                
+                const entity = viewer.entities.add({
+                    id: f.icao24 + f.callsign,
+                    position: Cesium.Cartesian3.fromDegrees(f.lon, f.lat, f.alt),
+                    billboard: {
+                        image: icon,
+                        scale: 0.8 * iconScale,
+                        rotation: rot,
+                        alignedAxis: Cesium.Cartesian3.ZERO,
+                        verticalOrigin: Cesium.VerticalOrigin.CENTER,
+                        horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+                        color: color,
+                        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 8000000),
+                        disableDepthTestDistance: Number.POSITIVE_INFINITY
+                    },
+                    label: showLabels ? {
+                        text: f.callsign,
+                        font: '10px Courier New',
+                        fillColor: color,
+                        outlineColor: Cesium.Color.BLACK,
+                        outlineWidth: 2,
+                        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                        pixelOffset: new Cesium.Cartesian2(0, -16),
+                        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 3000000),
+                        disableDepthTestDistance: Number.POSITIVE_INFINITY
+                    } : undefined,
+                    point: {
+                        pixelSize: 3,
+                        color: color,
+                        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(8000000, Number.POSITIVE_INFINITY),
+                        disableDepthTestDistance: Number.POSITIVE_INFINITY
+                    },
+                    flightData: f
+                });
+                f.entity = entity;
+            });
+        }
+
+        // CLICK HANDLER
+        viewer.screenSpaceEventHandler.setInputAction(click => {
+            const picked = viewer.scene.pick(click.position);
+            if (Cesium.defined(picked) && picked.id && picked.id.flightData) {
+                selectFlight(picked.id.flightData);
+            }
+        }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+        function selectFlight(f) {
+            selectedFlight = f;
+            document.getElementById('no-flight-msg').style.display = 'none';
+            document.getElementById('flight-detail-content').style.display = 'block';
+            
+            const ftStr = Math.round(f.alt * 3.28084).toLocaleString() + ' ft';
+            document.getElementById('d-callsign').textContent = f.callsign;
+            document.getElementById('d-airline').textContent = f.airline + ' • ' + f.country;
+            document.getElementById('d-alt').textContent = ftStr;
+            document.getElementById('d-spd').textContent = Math.round(f.spd) + ' kts';
+            document.getElementById('d-hdg').textContent = Math.round(f.heading) + '°';
+            
+            const vrStr = f.vertRate > 0.5 ? '↑ Climbing' : f.vertRate < -0.5 ? '↓ Descending' : '→ Level';
+            document.getElementById('d-vr').textContent = vrStr;
+            document.getElementById('d-orig').textContent = f.country;
+            document.getElementById('d-icao').textContent = f.icao24.toUpperCase();
+            document.getElementById('d-lat').textContent = f.lat.toFixed(4);
+            document.getElementById('d-lon').textContent = f.lon.toFixed(4);
+            document.getElementById('d-dep').textContent = f.origin ? f.origin.code : '???';
+            document.getElementById('d-arr').textContent = f.dest ? f.dest.code : '???';
+            
+            document.getElementById('sel-cs').textContent = f.callsign;
+            document.getElementById('sel-info').textContent = f.airline + ' • FL' + Math.round(f.alt/3.28084/100) + ' • ' + Math.round(f.spd) + ' kts';
+            document.getElementById('selected-indicator').style.display = 'block';
+            
+            showTab('details');
+            
+            document.querySelectorAll('.flight-row').forEach(r => r.classList.remove('selected'));
+            const matchRow = document.querySelector(`[data-icao="${f.icao24}"]`);
+            if (matchRow) {
+                matchRow.classList.add('selected');
+                matchRow.scrollIntoView({block:'nearest'});
+            }
+            
+            setStatus('Selected: ' + f.callsign + ' • ' + f.airline);
+        }
+
+        function clearSelection() {
+            selectedFlight = null;
+            document.getElementById('no-flight-msg').style.display = 'block';
+            document.getElementById('flight-detail-content').style.display = 'none';
+            document.getElementById('selected-indicator').style.display = 'none';
+            document.querySelectorAll('.flight-row').forEach(r => r.classList.remove('selected'));
+        }
+
+        function flyToSelected() {
+            if (!selectedFlight) return;
+            viewer.camera.flyTo({
+                destination: Cesium.Cartesian3.fromDegrees(selectedFlight.lon, selectedFlight.lat, 300000),
+                orientation: {
+                    heading: 0,
+                    pitch: Cesium.Math.toRadians(-60),
+                    roll: 0
+                },
+                duration: 2.5
+            });
+        }
+
+        function trackSelected() {
+            if (!selectedFlight || !selectedFlight.entity) return;
+            viewer.trackedEntity = selectedFlight.entity;
+            setStatus('Tracking: ' + selectedFlight.callsign);
+        }
+
+        // FLIGHT LIST
+        const typeColors = {commercial:'#00d4ff',cargo:'#ff6b35',private:'#00ff88',military:'#ff2d55',helicopter:'#ffd700'};
+
+        function renderFlightList() {
+            const query = searchQuery.toLowerCase();
+            filteredFlights = allFlights.filter(f => {
+                const matchType = activeFilter === 'all' || f.type === activeFilter;
+                const matchSearch = !query || 
+                    f.callsign.toLowerCase().includes(query) ||
+                    f.airline.toLowerCase().includes(query) ||
+                    f.country.toLowerCase().includes(query);
+                return matchType && matchSearch;
+            });
+            
+            const el = document.getElementById('flight-list');
+            const top = filteredFlights.slice(0, 200);
+            el.innerHTML = top.map(f => {
+                const ft = Math.round(f.alt * 3.28084 / 100);
+                return `<div class="flight-row" data-icao="${f.icao24}" onclick="selectFlightById('${f.icao24}','${f.callsign}')">
+                    <span style="color:${typeColors[f.type] || '#888'};font-size:17px">✈</span>
+                    <div class="fr-info">
+                        <div class="fr-cs">${f.callsign}</div>
+                        <div class="fr-route">${f.airline} • ${f.country}</div>
+                    </div>
+                    <div class="fr-alt">FL${ft}<br><span style="color:var(--muted);font-size:9px">${Math.round(f.spd)} kts</span></div>
+                </div>`;
+            }).join('');
+            
+            document.getElementById('flight-count-badge').textContent = filteredFlights.length + ' flights';
+        }
+
+        function selectFlightById(icao, cs) {
+            const f = allFlights.find(x => x.icao24 === icao && x.callsign === cs) || allFlights.find(x => x.icao24 === icao);
+            if (f) selectFlight(f);
+        }
+
+        function filterFlights() {
+            searchQuery = document.getElementById('search-input').value;
+            renderFlightList();
+        }
+
+        function setFilter(btn, filter) {
+            activeFilter = filter;
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            renderFlightList();
+        }
+
+        // RADIO LIST
+        function renderRadioList() {
+            const el = document.getElementById('radio-list');
+            el.innerHTML = radioFeeds.map((r, idx) => {
+                const isActive = activeRadio === idx;
+                return `<div class="radio-item ${isActive ? 'active' : ''}" onclick="selectRadio(${idx})">
+                    <div class="radio-header">
+                        <span class="radio-freq">${r.freq} MHz</span>
+                        <span class="radio-type">${r.type}</span>
+                    </div>
+                    <div class="radio-label">${r.label}</div>
+                    <div class="radio-location">📍 ${r.location}</div>
+                </div>`;
+            }).join('');
+        }
+
+        function selectRadio(idx) {
+            if (activeRadio === idx) {
+                activeRadio = null;
+                setStatus('Radio scanner stopped');
+            } else {
+                activeRadio = idx;
+                const r = radioFeeds[idx];
+                setStatus('🎧 Monitoring: ' + r.freq + ' MHz - ' + r.label);
+                
+                if (r.lat !== 0 && r.lon !== 0) {
+                    viewer.camera.flyTo({
+                        destination: Cesium.Cartesian3.fromDegrees(r.lon, r.lat, 500000),
+                        orientation: {
+                            heading: 0,
+                            pitch: Cesium.Math.toRadians(-45),
+                            roll: 0
+                        },
+                        duration: 2
+                    });
+                }
+            }
+            renderRadioList();
+        }
+
+        // STATS UPDATE
+        function updateStats() {
+            const n = allFlights.length;
+            const airborne = allFlights.filter(f => !f.onGround).length;
+            const countrySet = new Set(allFlights.map(f => f.country));
+            const avgSpd = n > 0 ? Math.round(allFlights.reduce((a,f) => a+f.spd, 0) / n) : 0;
+            const avgAlt = n > 0 ? Math.round(allFlights.reduce((a,f) => a+f.alt*3.28084, 0) / n / 100) : 0;
+            
+            document.getElementById('s-flights').textContent = n.toLocaleString();
+            document.getElementById('s-airborne').textContent = airborne.toLocaleString();
+            document.getElementById('s-countries').textContent = countrySet.size;
+            document.getElementById('s-radios').textContent = radioFeeds.length;
+            document.getElementById('s-speed').textContent = avgSpd;
+            document.getElementById('s-alt').textContent = 'FL' + avgAlt;
+            document.getElementById('stats-total').textContent = n.toLocaleString();
+            
+            const typeCounts = {commercial:0, cargo:0, private:0, military:0, helicopter:0};
+            allFlights.forEach(f => typeCounts[f.type] = (typeCounts[f.type] || 0) + 1);
+            
+            ['commercial','cargo','private','military','helicopter'].forEach(t => {
+                const cnt = typeCounts[t] || 0;
+                const pct = n > 0 ? Math.round(cnt/n*100) : 0;
+                document.getElementById('bar-'+t).style.width = pct + '%';
+                document.getElementById('bv-'+t).textContent = cnt;
+            });
+            
+            const cmap = {};
+            allFlights.forEach(f => cmap[f.country] = (cmap[f.country] || 0) + 1);
+            const topC = Object.entries(cmap).sort((a,b) => b[1]-a[1]).slice(0, 6);
+            document.getElementById('top-countries-list').innerHTML = topC.map(([c,v]) =>
+                `<div class="bar-row"><span class="br-label" style="font-size:10px">${c.substring(0,14)}</span><div class="br-bar"><div class="br-fill" style="width:${Math.round(v/n*100)}%;background:var(--accent)"></div></div><span class="br-val">${v}</span></div>`
+            ).join('');
+            
+            const amap = {};
+            allFlights.forEach(f => amap[f.airline] = (amap[f.airline] || 0) + 1);
+            const topA = Object.entries(amap).sort((a,b) => b[1]-a[1]).slice(0, 5);
+            document.getElementById('top-airlines-list').innerHTML = topA.map(([a,v]) =>
+                `<div class="bar-row"><span class="br-label" style="font-size:10px">${a.substring(0,14)}</span><div class="br-bar"><div class="br-fill" style="width:${Math.round(v/n*100)}%;background:var(--accent2)"></div></div><span class="br-val">${v}</span></div>`
+            ).join('');
+        }
+
+        // LIVE DATA FETCH
+        async function fetchLiveData() {
+            setStatus('Fetching live ADS-B data from OpenSky Network...');
+            try {
+                const url = 'https://opensky-network.org/api/states/all';
+                const res = await fetch(url, { 
+                    signal: AbortSignal.timeout(15000),
+                    mode: 'cors'
+                });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                
+                const json = await res.json();
+                const parsed = parseOpenSkyStates(json.states);
+                
+                if (parsed.length >= 10) {
+                    allFlights = parsed;
+                    addFlightEntities(allFlights);
+                    renderFlightList();
+                    updateStats();
+                    document.getElementById('data-badge').className = 'data-badge live';
+                    document.getElementById('data-badge').textContent = 'LIVE';
+                    document.getElementById('data-mode-label').textContent = 'LIVE ADS-B';
+                    setStatus('Live data loaded: ' + parsed.length + ' flights from OpenSky');
+                    return;
+                }
+                throw new Error('Insufficient data');
+            } catch(e) {
+                setStatus('Live data unavailable (' + e.message + '), using simulated data');
+                loadSimData();
+            }
+        }
+
+        function parseOpenSkyStates(states) {
+            if (!states || !Array.isArray(states)) return [];
+            return states.filter(s => s[5] && s[6] && !s[8]).map(s => {
+                const alCode = s[1].trim().replace(/[^A-Z]/g,'').substring(0,2);
+                const type = types[Math.floor(Math.random() * types.length)];
+                const orig = airports[Math.floor(Math.random() * airports.length)];
+                const dest = airports[Math.floor(Math.random() * airports.length)];
+                return {
+                    icao24: s[0] || '??????',
+                    callsign: s[1] || 'N/A'.trim(),
+                    country: s[2] || 'Unknown',
+                    type,
+                    lat: s[6],
+                    lon: s[5],
+                    alt: s[7] || s[13] || 0,
+                    spd: (s[9] || 0) * 1.944,
+                    heading: s[10] || 0,
+                    vertRate: s[11] || 0,
+                    origin: orig,
+                    dest,
+                    airline: airlines[alCode] || 'Unknown Airline',
+                    squawk: s[14] || '7700',
+                    onGround: s[8],
+                    entity: null
+                };
+            });
+        }
+
+        function loadSimData() {
+            allFlights = generateSimFlights(600);
+            addFlightEntities(allFlights);
+            renderFlightList();
+            updateStats();
+            renderRadioList();
+            document.getElementById('data-badge').className = 'data-badge sim';
+            document.getElementById('data-badge').textContent = 'SIM';
+            document.getElementById('data-mode-label').textContent = 'SIMULATED';
+            setStatus('Loaded 600 simulated global flights + ' + radioFeeds.length + ' radio feeds');
+            startFlightAnimation();
+        }
+
+        // REAL-TIME FLIGHT ANIMATION
+        function startFlightAnimation() {
+            if (animationInterval) clearInterval(animationInterval);
+            animationInterval = setInterval(() => {
+                if (!isTimePlaying) return; // Pause check
+
+                allFlights.forEach(f => {
+                    if (!f.dest || !f.origin) return;
+
+                    // Apply timeSpeed multiplier to movement
+                    const dx = (f.dest.lon - f.lon) * 0.001 * timeSpeed;
+                    const dy = (f.dest.lat - f.lat) * 0.001 * timeSpeed;
+
+                    f.lon += dx;
+                    f.lat += dy;
+
+                    f.alt += (Math.random() - 0.5) * 50 * timeSpeed;
+                    f.alt = Math.max(1000, Math.min(45000, f.alt));
+
+                    f.heading = Math.atan2(dx, dy) * 180 / Math.PI;
+                    if (f.heading < 0) f.heading += 360;
+
+                    if (f.entity) {
+                        f.entity.position = Cesium.Cartesian3.fromDegrees(f.lon, f.lat, f.alt);
+                        if (f.entity.billboard) {
+                            f.entity.billboard.rotation = Cesium.Math.toRadians(-f.heading);
+                        }
+                    }
+
+                    const dist = Math.sqrt(Math.pow(f.dest.lon - f.lon, 2) + Math.pow(f.dest.lat - f.lat, 2));
+                    if (dist < 0.5) {
+                        const temp = f.origin;
+                        f.origin = f.dest;
+                        f.dest = temp;
+                    }
+                });
+
+                if (selectedFlight) {
+                    const f = selectedFlight;
+                    document.getElementById('d-alt').textContent = Math.round(f.alt * 3.28084).toLocaleString() + ' ft';
+                    document.getElementById('d-spd').textContent = Math.round(f.spd) + ' kts';
+                    document.getElementById('d-hdg').textContent = Math.round(f.heading) + '°';
+                    document.getElementById('d-lat').textContent = f.lat.toFixed(4);
+                    document.getElementById('d-lon').textContent = f.lon.toFixed(4);
+                }
+            }, 1000);
+        }
+
+        // SETTINGS
+        function setSetting(prop, val, labelId) {
+            const v = parseFloat(val);
+            document.getElementById(labelId).textContent = v.toFixed(2);
+            try {
+                const layer = viewer.imageryLayers.get(0);
+                if (layer) layer[prop] = v;
+            } catch(e) {}
+        }
+
+        function setResScale(val) {
+            const v = parseFloat(val);
+            document.getElementById('v-res').textContent = v + 'x';
+            viewer.resolutionScale = v;
+        }
+
+        function setLighting(val) {
+            document.getElementById('v-light').textContent = parseFloat(val).toFixed(1);
+            scene.globe.atmosphereLightIntensity = parseFloat(val) * 10;
+        }
+
+        function setIconSize(val) {
+            iconScale = parseFloat(val);
+            document.getElementById('v-iconsize').textContent = iconScale.toFixed(1) + 'x';
+            allFlights.forEach(f => {
+                if (f.entity && f.entity.billboard) f.entity.billboard.scale = 0.8 * iconScale;
+            });
+        }
+
+        function toggleAtmosphere(v) {
+            scene.skyAtmosphere.show = v;
+            scene.globe.showGroundAtmosphere = v;
+        }
+
+        function toggleFog(v) {
+            scene.fog.enabled = v;
+        }
+
+        function toggleLighting(v) {
+            scene.globe.enableLighting = v;
+        }
+
+        function toggleShadows(v) {
+            viewer.shadows = v;
+        }
+
+        function toggleLabels(v) {
+            showLabels = v;
+            addFlightEntities(allFlights);
+        }
+
+        function toggleTrails(v) {
+            setStatus(v ? 'Flight trails enabled' : 'Flight trails disabled');
+        }
+
+        function resetSettings() {
+            document.querySelectorAll('input[type="range"]').forEach(r => {
+                r.value = r.defaultValue;
+                if (r.oninput) r.oninput();
+            });
+            viewer.resolutionScale = 1.0;
+            setStatus('All settings reset to defaults');
+        }
+
+        function screenshotGlobe() {
+            viewer.render();
+            const canvas = viewer.scene.canvas;
+            canvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'worldview-4d-' + Date.now() + '.png';
+                a.click();
+                setStatus('Screenshot saved');
+            });
+        }
+
+        // NAVIGATION
+        const regions = {
+            'globe':           {lon:0,    lat:20,   alt:22000000},
+            'north-america':   {lon:-100, lat:45,   alt:8000000},
+            'central-america': {lon:-85,  lat:15,   alt:4000000},
+            'south-america':   {lon:-60,  lat:-15,  alt:9000000},
+            'caribbean':       {lon:-75,  lat:20,   alt:3000000},
+            'europe':          {lon:15,   lat:52,   alt:5000000},
+            'eastern-europe':  {lon:30,   lat:52,   alt:4000000},
+            'scandinavia':     {lon:15,   lat:65,   alt:3500000},
+            'middle-east':     {lon:45,   lat:25,   alt:4000000},
+            'north-africa':    {lon:20,   lat:25,   alt:5000000},
+            'west-africa':     {lon:0,    lat:10,   alt:5000000},
+            'east-africa':     {lon:38,   lat:0,    alt:4500000},
+            'south-africa':    {lon:25,   lat:-30,  alt:4000000},
+            'russia':          {lon:60,   lat:60,   alt:10000000},
+            'central-asia':    {lon:65,   lat:45,   alt:5000000},
+            'south-asia':      {lon:80,   lat:22,   alt:5000000},
+            'southeast-asia':  {lon:115,  lat:5,    alt:5000000},
+            'east-asia':       {lon:115,  lat:35,   alt:5000000},
+            'china':           {lon:105,  lat:35,   alt:6000000},
+            'japan-korea':     {lon:133,  lat:36,   alt:2500000},
+            'australia':       {lon:134,  lat:-25,  alt:6000000},
+            'pacific':         {lon:-160, lat:5,    alt:12000000},
+            'arctic':          {lon:0,    lat:85,   alt:6000000},
+            'antarctica':      {lon:0,    lat:-85,  alt:6000000},
+        };
+
+        function flyToRegion(reg) {
+            const r = regions[reg];
+            if (!r) return;
+            // Use lookAt with HeadingPitchRange — always locks camera onto Earth surface
+            const center = Cesium.Cartesian3.fromDegrees(r.lon, r.lat, 0);
+            const hpr = new Cesium.HeadingPitchRange(
+                0,
+                Cesium.Math.toRadians(-90), // straight down — never flies off earth
+                r.alt
+            );
+            viewer.camera.flyToBoundingSphere(
+                new Cesium.BoundingSphere(center, r.alt * 0.1),
+                {
+                    duration: 2.0,
+                    offset: hpr
+                }
+            );
+        }
+
+        // TIME CONTROLS
+        function setTimeSpeed(val) {
+            timeSpeed = parseFloat(val);
+            document.getElementById('time-speed-label').textContent = timeSpeed + 'x';
+        }
+
+        function toggleTime() {
+            isTimePlaying = !isTimePlaying;
+            const btn = document.getElementById('play-btn');
+            if (isTimePlaying) {
+                btn.textContent = '⏸ Pause';
+                btn.classList.add('active');
+            } else {
+                btn.textContent = '▶ Play';
+                btn.classList.remove('active');
+            }
+        }
+
+        // UI TOGGLES
+        function toggleLeft() {
+            const panel = document.getElementById('panel-left');
+            const btn = document.getElementById('toggle-left');
+            panel.classList.toggle('collapsed');
+            if (panel.classList.contains('collapsed')) {
+                btn.style.left = '20px';
+                btn.textContent = '▶';
+            } else {
+                btn.style.left = '290px';
+                btn.textContent = '◀';
+            }
+        }
+
+        function toggleRight() {
+            const panel = document.getElementById('panel-right');
+            const btn = document.getElementById('toggle-right');
+            panel.classList.toggle('collapsed');
+            if (panel.classList.contains('collapsed')) {
+                btn.style.right = '20px';
+                btn.textContent = '◀';
+            } else {
+                btn.style.right = '320px';
+                btn.textContent = '▶';
+            }
+        }
+
+        function showTab(name) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelector(`.tab[onclick*="${name}"]`).classList.add('active');
+            document.getElementById('tab-' + name).classList.add('active');
+        }
+
+        function setStatus(msg) {
+            document.getElementById('status-msg').textContent = msg;
+        }
+
+        // CLOCK
+        function updateClock() {
+            const now = new Date();
+            const h = String(now.getUTCHours()).padStart(2,'0');
+            const m = String(now.getUTCMinutes()).padStart(2,'0');
+            const s = String(now.getUTCSeconds()).padStart(2,'0');
+            document.getElementById('clk').textContent = h + ':' + m + ':' + s + ' UTC';
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // INIT
+        setTimeout(() => {
+            document.getElementById('loading-overlay').style.display = 'none';
+            // Try live data first, fallback to simulation
+            fetchLiveData().catch(() => loadSimData());
+            setStatus('WorldView 4D Command Center operational');
+        }, 2000);
+
+        // AUTO REFRESH
+        setInterval(() => {
+            if (document.getElementById('data-badge').classList.contains('live')) {
+                fetchLiveData();
+            }
+        }, 30000);
+    
+        function toggleDropdown(id) {
+            const menu = document.getElementById(id);
+            const isOpen = menu.classList.contains('open');
+            closeDropdowns();
+            if (!isOpen) menu.classList.add('open');
+        }
+        function closeDropdowns() {
+            document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('open'));
+        }
+        // Close dropdowns when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.dropdown')) closeDropdowns();
+        });
+</script>
