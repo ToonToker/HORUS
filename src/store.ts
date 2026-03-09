@@ -1,72 +1,259 @@
 import { create } from 'zustand';
 
+export type WitnessStatus = 'ACTIVE' | 'COMPROMISED' | 'NEUTRAL';
+
+export type SynapticTrack = {
+  id: string;
+  lat?: number;
+  lon?: number;
+  from?: { lat: number; lon: number };
+  to?: { lat: number; lon: number };
+  ts?: number;
+  [key: string]: unknown;
+};
+
+export type StreamKey =
+  | 'data:conflictZones'
+  | 'data:breaches'
+  | 'data:threatArcs'
+  | 'data:rfNodes'
+  | 'data:vessels'
+  | 'data:cyberThreats'
+  | 'data:wardriving'
+  | 'data:resonanceLinks'
+  | 'data:ghostMarkers'
+  | 'data:witnessAnnotations'
+  | 'data:seekerNodes'
+  | 'data:mcpNodes'
+  | 'data:liquidityHeatmap'
+  | 'data:seismicWindows'
+  | 'data:highEntropyNodes';
+
+type SovereignSettings = {
+  scrapingFrequencySec: number;
+  torEnabled: boolean;
+  dataPaths: {
+    wigleCsv: string;
+    breachDump: string;
+    boundaries: string;
+  };
+  sourceUrls: {
+    radio: string;
+    ais: string;
+  };
+};
+
+export type LayerKey = keyof WorldViewState['layers'];
+
+export type LayerSetting = {
+  targetDorks: string;
+  scraperDepth: number;
+  dbPath: string;
+};
+
+
+export interface LayerConfig {
+  id: LayerKey;
+  name: string;
+  active: boolean;
+  settings: LayerSetting;
+  status: 'idle' | 'searching' | 'error';
+}
+
+const STREAM_KEYS: StreamKey[] = [
+  'data:conflictZones', 'data:breaches', 'data:threatArcs', 'data:rfNodes', 'data:vessels',
+  'data:cyberThreats', 'data:wardriving', 'data:resonanceLinks', 'data:ghostMarkers',
+  'data:witnessAnnotations', 'data:seekerNodes', 'data:mcpNodes', 'data:liquidityHeatmap',
+  'data:seismicWindows', 'data:highEntropyNodes',
+];
+
+type SynapticFeed = Record<StreamKey, SynapticTrack[]>;
+
+const emptySynapticFeed = (): SynapticFeed => Object.fromEntries(STREAM_KEYS.map((k) => [k, []])) as SynapticFeed;
+
 interface WorldViewState {
   layers: {
-    aircraft: boolean;
-    militaryFlights: boolean;
-    satellites: boolean;
-    earthquakes: boolean;
-    marineTraffic: boolean;
-    submarineCables: boolean;
-    weatherRadar: boolean;
-    wildfires: boolean;
-    newsHeatmap: boolean;
+    borders: boolean;
+    conflictZones: boolean;
+    threatMap: boolean;
+    breachLocator: boolean;
+    subseaCables: boolean;
+    seismicFaults: boolean;
     powerGrid: boolean;
-    dataCenters: boolean;
-    cctvMesh: boolean;
-    magnetosphere: boolean;
-    streetTraffic: boolean;
-    bikeshare: boolean;
-    pois: boolean;
-    internetDevices: boolean;
-    wigleWifi: boolean;
-    snapchatMaps: boolean;
-    pokemonGo: boolean;
+    groundStations: boolean;
+    witnessAnnotations: boolean;
+    rfNodes: boolean;
+    maritime: boolean;
+    cyberThreats: boolean;
+    signalFog: boolean;
+    resonanceLinks: boolean;
+    ghostMarkers: boolean;
+    seekerNodes: boolean;
+    mcpNodes: boolean;
+    liquidityHeatmap: boolean;
+    seismicWindows: boolean;
+    highEntropyNodes: boolean;
   };
-  visualMode: 'normal' | 'night-vision' | 'thermal';
-  crtEnabled: boolean;
-  currentTime: Date;
   selectedEntity: any | null;
-  toggleLayer: (layer: keyof WorldViewState['layers']) => void;
-  setVisualMode: (mode: WorldViewState['visualMode']) => void;
-  toggleCrt: () => void;
-  setCurrentTime: (time: Date) => void;
-  setSelectedEntity: (entity: any) => void;
+  pendingWitnessPoint: { lat: number; lon: number } | null;
+  temporalHours: number;
+  settingsOpen: boolean;
+  settings: SovereignSettings;
+  layerSettingsModal: LayerKey | null;
+  layerSettings: Record<string, LayerSetting>;
+  layerControllers: Record<LayerKey, LayerConfig>;
+  synapticFeed: SynapticFeed;
+  streamIngressLog: string[];
+  toggleLayer: (layer: LayerKey) => void;
+  setSelectedEntity: (entity: any | null) => void;
+  setPendingWitnessPoint: (point: { lat: number; lon: number } | null) => void;
+  setTemporalHours: (hours: number) => void;
+  setSettingsOpen: (open: boolean) => void;
+  patchSettings: (patch: Partial<SovereignSettings>) => void;
+  patchDataPaths: (patch: Partial<SovereignSettings['dataPaths']>) => void;
+  patchSourceUrls: (patch: Partial<SovereignSettings['sourceUrls']>) => void;
+  setLayerSettingsModal: (layer: LayerKey | null) => void;
+  patchLayerSetting: (layer: LayerKey, patch: Partial<LayerSetting>) => void;
+  updateLayerController: (layer: LayerKey, patch: Partial<LayerConfig>) => void;
+  setStreamBatch: (stream: StreamKey, payload: SynapticTrack[]) => void;
 }
+
+const defaultSettings: SovereignSettings = {
+  scrapingFrequencySec: 30,
+  torEnabled: false,
+  dataPaths: {
+    wigleCsv: 'data/threats/wigle_cells.csv',
+    breachDump: 'data/threats/breaches.csv',
+    boundaries: 'data/boundaries',
+  },
+  sourceUrls: {
+    radio: 'archive://radio/raw',
+    ais: 'archive://ais/raw',
+  },
+};
+
+const defaultLayerSetting: LayerSetting = {
+  targetDorks: '',
+  scraperDepth: 2,
+  dbPath: 'horus.db',
+};
+
+
+const layerNameMap: Record<LayerKey, string> = {
+  borders: 'Borders',
+  conflictZones: 'Conflict Zones',
+  threatMap: 'Threat Map',
+  breachLocator: 'Breach Locator',
+  subseaCables: 'Subsea Cables',
+  seismicFaults: 'Seismic Faults',
+  powerGrid: 'Power Grid',
+  groundStations: 'Ground Stations',
+  witnessAnnotations: 'Witness Annotations',
+  rfNodes: 'RF Nodes',
+  maritime: 'AIS/ADSB',
+  cyberThreats: 'Shodan',
+  signalFog: 'Signal Fog',
+  resonanceLinks: 'Resonance Links',
+  ghostMarkers: 'Ghost Markers',
+  seekerNodes: 'OSINT',
+  mcpNodes: 'MCP Nodes',
+  liquidityHeatmap: 'Market Liquidity',
+  seismicWindows: 'Seismic Windows',
+  highEntropyNodes: 'High Entropy',
+};
+
+const makeLayerControllers = (layers: WorldViewState['layers'], layerSettings: Record<string, LayerSetting>): Record<LayerKey, LayerConfig> => {
+  const out = {} as Record<LayerKey, LayerConfig>;
+  (Object.keys(layers) as LayerKey[]).forEach((key) => {
+    out[key] = {
+      id: key,
+      name: layerNameMap[key],
+      active: layers[key],
+      settings: layerSettings[key] ?? defaultLayerSetting,
+      status: 'idle',
+    };
+  });
+  return out;
+};
 
 export const useWorldViewStore = create<WorldViewState>((set) => ({
   layers: {
-    aircraft: true,
-    militaryFlights: false,
-    satellites: false,
-    earthquakes: true,
-    marineTraffic: false,
-    submarineCables: false,
-    weatherRadar: false,
-    wildfires: false,
-    newsHeatmap: false,
+    borders: true,
+    conflictZones: true,
+    threatMap: true,
+    breachLocator: true,
+    subseaCables: false,
+    seismicFaults: false,
     powerGrid: false,
-    dataCenters: false,
-    cctvMesh: false,
-    magnetosphere: false,
-    streetTraffic: false,
-    bikeshare: false,
-    pois: false,
-    internetDevices: false,
-    wigleWifi: false,
-    snapchatMaps: false,
-    pokemonGo: false,
+    groundStations: false,
+    witnessAnnotations: true,
+    rfNodes: true,
+    maritime: true,
+    cyberThreats: true,
+    signalFog: false,
+    resonanceLinks: true,
+    ghostMarkers: true,
+    seekerNodes: true,
+    mcpNodes: true,
+    liquidityHeatmap: true,
+    seismicWindows: true,
+    highEntropyNodes: true,
   },
-  visualMode: 'normal',
-  crtEnabled: false,
-  currentTime: new Date(),
   selectedEntity: null,
-  toggleLayer: (layer) =>
-    set((state) => ({
-      layers: { ...state.layers, [layer]: !state.layers[layer] },
-    })),
-  setVisualMode: (mode) => set({ visualMode: mode }),
-  toggleCrt: () => set((state) => ({ crtEnabled: !state.crtEnabled })),
-  setCurrentTime: (time) => set({ currentTime: time }),
-  setSelectedEntity: (entity) => set({ selectedEntity: entity }),
+  pendingWitnessPoint: null,
+  temporalHours: 24,
+  settingsOpen: false,
+  settings: defaultSettings,
+  layerSettingsModal: null,
+  synapticFeed: emptySynapticFeed(),
+  streamIngressLog: [],
+  layerSettings: {
+    maritime: { ...defaultLayerSetting, targetDorks: 'ais cargo tanker' },
+    cyberThreats: { ...defaultLayerSetting, targetDorks: 'shodan net:10.0.0.0/8', dbPath: 'data/threats/shodan_scrape.csv' },
+    seekerNodes: { ...defaultLayerSetting, targetDorks: 'wallet pivots', dbPath: 'cases/default-case' },
+    liquidityHeatmap: { ...defaultLayerSetting, targetDorks: 'liquidity clusters', dbPath: 'data/mcp/lob_context.json' },
+  },
+  layerControllers: makeLayerControllers({
+    borders: true, conflictZones: true, threatMap: true, breachLocator: true, subseaCables: false, seismicFaults: false, powerGrid: false, groundStations: false, witnessAnnotations: true, rfNodes: true, maritime: true, cyberThreats: true, signalFog: false, resonanceLinks: true, ghostMarkers: true, seekerNodes: true, mcpNodes: true, liquidityHeatmap: true, seismicWindows: true, highEntropyNodes: true,
+  }, {
+    maritime: { ...defaultLayerSetting, targetDorks: 'ais cargo tanker' },
+    cyberThreats: { ...defaultLayerSetting, targetDorks: 'shodan net:10.0.0.0/8', dbPath: 'data/threats/shodan_scrape.csv' },
+    seekerNodes: { ...defaultLayerSetting, targetDorks: 'wallet pivots', dbPath: 'cases/default-case' },
+    liquidityHeatmap: { ...defaultLayerSetting, targetDorks: 'liquidity clusters', dbPath: 'data/mcp/lob_context.json' },
+  }),
+  toggleLayer: (layer) => set((state) => ({
+    layers: { ...state.layers, [layer]: !state.layers[layer] },
+    layerControllers: { ...state.layerControllers, [layer]: { ...state.layerControllers[layer], active: !state.layers[layer] } },
+  })),
+  setSelectedEntity: (selectedEntity) => set({ selectedEntity }),
+  setPendingWitnessPoint: (pendingWitnessPoint) => set({ pendingWitnessPoint }),
+  setTemporalHours: (temporalHours) => set({ temporalHours }),
+  setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+  patchSettings: (patch) => set((state) => ({ settings: { ...state.settings, ...patch } })),
+  patchDataPaths: (patch) => set((state) => ({ settings: { ...state.settings, dataPaths: { ...state.settings.dataPaths, ...patch } } })),
+  patchSourceUrls: (patch) => set((state) => ({ settings: { ...state.settings, sourceUrls: { ...state.settings.sourceUrls, ...patch } } })),
+  setLayerSettingsModal: (layerSettingsModal) => set({ layerSettingsModal }),
+  patchLayerSetting: (layer, patch) => set((state) => ({
+    layerSettings: {
+      ...state.layerSettings,
+      [layer]: { ...(state.layerSettings[layer] ?? defaultLayerSetting), ...patch },
+    },
+    layerControllers: {
+      ...state.layerControllers,
+      [layer]: {
+        ...state.layerControllers[layer],
+        settings: { ...(state.layerControllers[layer]?.settings ?? defaultLayerSetting), ...patch },
+      },
+    },
+  })),
+  updateLayerController: (layer, patch) => set((state) => ({
+    layerControllers: {
+      ...state.layerControllers,
+      [layer]: { ...state.layerControllers[layer], ...patch },
+    },
+  })),
+  setStreamBatch: (stream, payload) => set((state) => ({
+    synapticFeed: { ...state.synapticFeed, [stream]: payload },
+    streamIngressLog: [`${new Date().toISOString()} ${stream} ${payload.length}`, ...state.streamIngressLog].slice(0, 30),
+  })),
 }));

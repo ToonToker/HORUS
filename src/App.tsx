@@ -1,21 +1,20 @@
 import React from 'react';
-import GlobeViewer from './components/GlobeViewer';
-import Sidebar from './components/Sidebar';
+import WorldviewCanvas from './components/WorldviewCanvas';
+import OSINTDash from './components/OSINTDash';
 import TopBar from './components/TopBar';
 import DetailsPanel from './components/DetailsPanel';
 import Timeline from './components/Timeline';
-import { useWorldViewStore } from './store';
+import SynapticStream from './components/SynapticStream';
 
 export default function App() {
-  const { crtEnabled } = useWorldViewStore();
-
   return (
-    <div className={`w-screen h-screen overflow-hidden flex flex-col bg-black text-green-500 font-mono ${crtEnabled ? 'crt-scanlines' : ''}`}>
+    <div className="w-screen h-screen overflow-hidden flex flex-col bg-[#000500] text-[#00FF41] font-mono">
+      <SynapticStream />
       <TopBar />
       <div className="flex-1 flex relative overflow-hidden">
-        <Sidebar />
+        <OSINTDash />
         <div className="flex-1 relative">
-          <GlobeViewer />
+          <WorldviewCanvas />
         </div>
         <DetailsPanel />
       </div>
