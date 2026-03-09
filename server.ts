@@ -437,6 +437,7 @@ function loadSigintSuite() {
     if (!b) return [];
     return [{ id: `res-${s.id}`, from: { lat: b.lat, lon: b.lon }, to: { lat: s.lat, lon: s.lon }, ip: s.ip, port: s.port, service: s.service }];
   });
+}
 
   state.liquidityHeatmap = [...state.cyberThreats, ...state.vessels].slice(0, 200).map((n, i) => ({
     id: `liq-${i}`,
